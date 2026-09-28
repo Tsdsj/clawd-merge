@@ -1,7 +1,10 @@
 // A tiny stand-in for Cloudflare D1 on top of Node's built-in SQLite, so the
 // Worker can be tested and run locally without wrangler.
 import { DatabaseSync } from 'node:sqlite';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
+
+const MIGRATIONS = new URL('../migrations/', import.meta.url);
+const migrationFiles = () => readdirSync(MIGRATIONS).filter((f) => f.endsWith('.sql')).sort();
 
 class Statement {
   constructor(db, sql, params = []) {
@@ -24,10 +27,22 @@ class Statement {
   }
 }
 
-export function createD1(file = ':memory:') {
+// Applies migrations like `wrangler d1 migrations apply`. `upTo` stops after
+// that many files (to test upgrading an older database); call migrate() later
+// to apply the rest.
+export function createD1(file = ':memory:', { upTo = Infinity } = {}) {
   const db = new DatabaseSync(file);
-  db.exec(readFileSync(new URL('../schema.sql', import.meta.url), 'utf8'));
+  let applied = 0;
+  const migrate = (limit = Infinity) => {
+    for (const f of migrationFiles().slice(applied, limit)) {
+      db.exec(readFileSync(new URL(f, MIGRATIONS), 'utf8'));
+      applied++;
+    }
+  };
+  migrate(upTo);
   return {
+    migrate,
+    raw: db,
     prepare: (sql) => new Statement(db, sql),
     async batch(statements) {
       db.exec('BEGIN');

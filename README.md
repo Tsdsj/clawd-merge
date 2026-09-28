@@ -89,7 +89,8 @@
 
 ## 排行榜
 
-- 第一次进入要起一个用户名（2~12 个字，不能重名），名字和当前浏览器绑定。
+- 第一次进入选一种身份：**用 LINUX DO 登录**（名字就是 L 站用户名，换设备成绩不丢），或者**当游客**随便起名（可以重名，自动带 `#编号`，只保存在当前浏览器）。
+- 游客之后登录 L 站，成绩会合并到 L 站账号；点左上角的名字可以改名、绑定 L 站或退出。
 - 每人只计最佳成绩；游戏结束时显示你的全球排名。
 - 后端是 Cloudflare Workers + D1，自带防刷校验。部署方法见 [`leaderboard/README.md`](leaderboard/README.md)。
 - 没配置排行榜地址（[`src/config.js`](src/config.js)）时，游戏照常单机运行。
@@ -145,6 +146,7 @@ npm start
 
 - Clawd 是 Anthropic 的 Claude Code 吉祥物。本项目是粉丝自制的小游戏，**与 Anthropic 无关**，也未获其背书。
 - 代码以 [MIT](LICENSE) 协议开源。
+- 感谢 [LINUX DO](https://linux.do) 社区的佬友们。
 
 ---
 
@@ -177,7 +179,7 @@ Scoring: merging two level-k Clawds scores **2^k**. Balance was tuned with simul
 
 ## Leaderboard
 
-Players pick a unique name once (bound to the browser via a secret token). Each player's best score is ranked. The backend is Cloudflare Workers + D1, with single-use game sessions, plausibility checks on elapsed time and score, and rate limits. See [`leaderboard/README.md`](leaderboard/README.md) to deploy it, then set `LEADERBOARD_API` in [`src/config.js`](src/config.js). Without it, the game runs offline.
+Players either log in with LINUX DO (their forum username, works across devices) or play as a guest with any name (duplicates allowed, shown with a `#1234` tag; guests can later log in and keep their scores). Each player's best score is ranked. The backend is Cloudflare Workers + D1, with single-use game sessions, plausibility checks on elapsed time and score, and rate limits. See [`leaderboard/README.md`](leaderboard/README.md) to deploy it, then set `LEADERBOARD_API` in [`src/config.js`](src/config.js). Without it, the game runs offline.
 
 ## Run locally
 
@@ -197,4 +199,4 @@ Add `?debug` to the URL to see collision shapes.
 
 ## Disclaimer & license
 
-Clawd is Anthropic's mascot for Claude Code. This is an unofficial fan game, **not affiliated with or endorsed by Anthropic**. Code is released under the [MIT](LICENSE) license.
+Clawd is Anthropic's mascot for Claude Code. This is an unofficial fan game, **not affiliated with or endorsed by Anthropic**. Code is released under the [MIT](LICENSE) license. Thanks to the [LINUX DO](https://linux.do) community.

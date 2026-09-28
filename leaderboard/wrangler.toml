@@ -5,11 +5,20 @@ compatibility_date = "2026-09-01"
 [vars]
 # Origins allowed to call the API (comma separated).
 ALLOWED_ORIGINS = "https://tsdsj.github.io,http://localhost:5173"
-# Extra banned words for names, comma separated (reserved words are built in).
+# Where players land after LINUX DO login when no page was given.
+GAME_URL = "https://tsdsj.github.io/clawd-merge/"
+# Extra banned words for guest names, comma separated (reserved words are built in).
 BLOCKED_WORDS = ""
+# LINUX DO Connect app (https://connect.linux.do). The client ID is public;
+# the secret is NOT stored here — set it with:
+#   npx wrangler secret put LINUXDO_CLIENT_SECRET
+# The app's callback URL must be <this Worker's URL>/api/auth/linuxdo/callback
+LINUXDO_CLIENT_ID = "mrgnVCaUmmMAtxwReQeol7CHurmD0XI3"
+# Minimum LINUX DO trust level allowed to log in (0 = everyone).
+LINUXDO_MIN_TRUST_LEVEL = "0"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "clawd-merge"
-# Replace with the id printed by `npx wrangler d1 create clawd-merge`.
 database_id = "9684a750-0039-4e4b-8fff-7f492dc945fd"
+migrations_dir = "migrations"

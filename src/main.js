@@ -1,7 +1,7 @@
 import { Game, WORLD_W, WORLD_H, enableHaptics } from './game.js';
 import { LEVELS, RAINBOW, defOf, drawCrabIcon, drawLegendIcon } from './crabs.js';
 import { sfx } from './audio.js';
-import { leaderboard } from './leaderboard.js';
+import { leaderboard, displayName } from './leaderboard.js';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -86,22 +86,72 @@ function restart() {
   leaderboard.startSession();
 }
 
-// ---------- leaderboard ----------
+// ---------- leaderboard & account ----------
 
 const nameModal = $('name-modal');
 const rankModal = $('rank-modal');
+const accountModal = $('account-modal');
 const finalRank = $('final-rank');
+const modals = [nameModal, rankModal, accountModal];
 const modalOpen = () => document.body.classList.contains('modal-open');
 
 function showModal(modal, open) {
   modal.classList.toggle('hidden', !open);
-  document.body.classList.toggle('modal-open', !nameModal.classList.contains('hidden') || !rankModal.classList.contains('hidden'));
+  document.body.classList.toggle('modal-open', modals.some((m) => !m.classList.contains('hidden')));
+}
+
+let toastTimer = 0;
+function toast(text) {
+  const el = $('toast');
+  el.textContent = text;
+  el.classList.remove('hidden');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.add('hidden'), 2600);
+}
+
+// LINUX DO avatar, or an orange dot for guests.
+function avatarEl(p) {
+  if (p.linuxdo && p.avatar) {
+    const img = document.createElement('img');
+    img.className = 'avatar';
+    img.src = p.avatar;
+    img.alt = '';
+    img.loading = 'lazy';
+    img.referrerPolicy = 'no-referrer';
+    return img;
+  }
+  const dot = document.createElement('span');
+  dot.className = 'chip-dot';
+  return dot;
+}
+
+// Name with a muted #tag for guests and a small "L" badge for LINUX DO accounts.
+function nameEl(p, className) {
+  const span = document.createElement('span');
+  span.className = className;
+  span.append(p.name);
+  if (p.tag) {
+    const tag = document.createElement('span');
+    tag.className = 'tag';
+    tag.textContent = `#${p.tag}`;
+    span.append(tag);
+  }
+  if (p.linuxdo) {
+    const badge = document.createElement('span');
+    badge.className = 'ld-badge';
+    badge.textContent = 'L';
+    badge.title = `LINUX DO · 信任等级 ${p.trustLevel ?? 0}`;
+    span.append(badge);
+  }
+  return span;
 }
 
 function showPlayer() {
   const { player, enabled } = leaderboard;
-  $('player-chip').textContent = player ? player.name : '';
-  $('player-chip').classList.toggle('hidden', !player);
+  const chip = $('player-chip');
+  chip.replaceChildren();
+  if (player) chip.append(avatarEl(player), nameEl(player, 'chip-name'));
+  chip.classList.toggle('hidden', !player || !enabled);
   $('rank-btn').classList.toggle('hidden', !enabled);
   $('over-rank').classList.toggle('hidden', !enabled);
 }
@@ -111,7 +161,6 @@ function askName(message = '') {
   $('name-error').textContent = message;
   $('name-offline').classList.add('hidden');
   showModal(nameModal, true);
-  setTimeout(() => $('name-input').focus(), 50);
 }
 
 $('name-form').addEventListener('submit', async (e) => {
@@ -140,10 +189,70 @@ $('name-offline').addEventListener('click', () => {
   showPlayer();
 });
 
+// Leaves the page for LINUX DO; comes back with #login=<code>.
+async function goLinuxdo(button, errorEl) {
+  button.disabled = true;
+  errorEl.textContent = '';
+  try {
+    await leaderboard.loginWithLinuxdo();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    if (err.code === 'offline' && errorEl.id === 'name-error') $('name-offline').classList.remove('hidden');
+    button.disabled = false;
+  }
+}
+$('ld-login').addEventListener('click', (e) => goLinuxdo(e.currentTarget, $('name-error')));
+$('acc-ld').addEventListener('click', (e) => goLinuxdo(e.currentTarget, $('acc-error')));
+
+function openAccount(message = '') {
+  const p = leaderboard.player;
+  if (!p) return;
+  const hasAvatar = Boolean(p.linuxdo && p.avatar);
+  $('acc-avatar').classList.toggle('hidden', !hasAvatar);
+  if (hasAvatar) $('acc-avatar').src = p.avatar;
+  $('acc-crab').classList.toggle('hidden', hasAvatar);
+  drawCrabIcon($('acc-crab'), 1, 64, 40, dpr);
+  $('acc-name').replaceChildren(nameEl(p, ''));
+  $('acc-sub').textContent = p.linuxdo
+    ? `LINUX DO 账号 · 信任等级 ${p.trustLevel ?? 0}`
+    : '游客 · 身份只保存在这个浏览器';
+  $('acc-guest').classList.toggle('hidden', p.linuxdo);
+  $('rename-input').value = '';
+  $('acc-error').textContent = message;
+  showModal(accountModal, true);
+}
+
+$('player-chip').addEventListener('click', () => openAccount());
+$('acc-close').addEventListener('click', () => showModal(accountModal, false));
+accountModal.addEventListener('click', (e) => {
+  if (e.target === accountModal) showModal(accountModal, false);
+});
+
+$('rename-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    await leaderboard.rename($('rename-input').value.trim());
+    showPlayer();
+    openAccount();
+    toast('改好名字了');
+  } catch (err) {
+    $('acc-error').textContent = err.message;
+  }
+});
+
+$('acc-logout').addEventListener('click', async () => {
+  const guest = !leaderboard.player?.linuxdo;
+  if (guest && !confirm('游客身份只存在这个浏览器里，退出后这个名字和成绩就找不回来了。确定退出吗？')) return;
+  await leaderboard.logout();
+  showModal(accountModal, false);
+  showPlayer();
+  askName();
+});
+
 leaderboard.onUnauthorized = () => {
   leaderboard.forget();
   showPlayer();
-  askName('身份已失效，请重新起个名字');
+  askName('登录已失效，请重新登录');
 };
 
 async function submitScore(result) {
@@ -167,13 +276,14 @@ async function openRanks() {
   meRow.classList.add('hidden');
   showModal(rankModal, true);
   try {
+    const myId = leaderboard.player?.id;
     const entries = await leaderboard.top(50);
-    list.replaceChildren(...entries.map((e) => rankRow(e, e.name === leaderboard.player?.name)));
+    list.replaceChildren(...entries.map((e) => rankRow(e, e.id === myId)));
     if (!entries.length) list.innerHTML = '<li class="status">还没有人上榜，快来当第一名!</li>';
-    if (leaderboard.player && !entries.some((e) => e.name === leaderboard.player.name)) {
+    if (myId && !entries.some((e) => e.id === myId)) {
       const me = await leaderboard.me();
       if (me.rank) {
-        meRow.replaceChildren(...rankRow({ rank: me.rank, name: me.name, score: me.best, level: me.bestLevel }).children);
+        meRow.replaceChildren(...rankRow({ ...me.player, rank: me.rank, score: me.best, level: me.bestLevel }).children);
         meRow.classList.remove('hidden');
       }
     }
@@ -186,22 +296,20 @@ async function openRanks() {
   }
 }
 
-function rankRow({ rank, name, score, level }, isMe = false) {
+function rankRow(entry, isMe = false) {
   const li = document.createElement('li');
   li.classList.toggle('me', isMe);
   const no = document.createElement('span');
   no.className = 'rank-no';
-  no.textContent = rank;
-  const who = document.createElement('span');
-  who.className = 'rank-name';
-  who.textContent = name;
+  no.textContent = entry.rank;
+  const level = Math.max(1, entry.level);
   const icon = document.createElement('canvas');
-  drawLegendIcon(icon, Math.max(1, level), dpr);
-  icon.title = defOf(Math.max(1, level)).name;
+  drawLegendIcon(icon, level, dpr);
+  icon.title = defOf(level).name;
   const pts = document.createElement('span');
   pts.className = 'rank-score';
-  pts.textContent = score;
-  li.append(no, who, icon, pts);
+  pts.textContent = entry.score;
+  li.append(no, avatarEl(entry), nameEl(entry, 'rank-name'), icon, pts);
   return li;
 }
 
@@ -283,7 +391,7 @@ document.addEventListener('gesturestart', (e) => e.preventDefault());
 const keys = new Set();
 window.addEventListener('keydown', (e) => {
   if (modalOpen()) {
-    if (e.code === 'Escape' && !rankModal.classList.contains('hidden')) showModal(rankModal, false);
+    if (e.code === 'Escape') [rankModal, accountModal].forEach((m) => showModal(m, false));
     return; // let the name input receive keys
   }
   if (e.code === 'ArrowLeft' || e.code === 'KeyA' || e.code === 'ArrowRight' || e.code === 'KeyD') {
@@ -332,9 +440,23 @@ new ResizeObserver(layout).observe(stage);
 
 layout();
 requestAnimationFrame(frame);
-showPlayer();
-if (leaderboard.enabled && !leaderboard.player) askName();
-else leaderboard.startSession();
+initAccount();
+
+async function initAccount() {
+  showPlayer();
+  if (!leaderboard.enabled) return;
+  // Back from LINUX DO? The page URL carries a one-time login code (or an error).
+  const result = await leaderboard.finishLoginRedirect();
+  showPlayer();
+  if (result?.player) toast(`欢迎, ${displayName(result.player)}!`);
+  if (!leaderboard.player) {
+    askName(result?.error || '');
+    return;
+  }
+  if (result?.error) openAccount(result.error);
+  leaderboard.startSession();
+  leaderboard.refresh().then(showPlayer);
+}
 
 // Handy for debugging from the console.
 window.clawd = game;

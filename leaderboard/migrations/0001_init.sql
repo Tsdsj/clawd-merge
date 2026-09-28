@@ -1,5 +1,6 @@
 -- 合成大Clawd leaderboard schema (Cloudflare D1 / SQLite).
--- Apply with: npx wrangler d1 execute clawd-merge --remote --file=schema.sql
+-- Apply all migrations with: npx wrangler d1 migrations apply clawd-merge --remote
+-- (Idempotent: safe on databases created earlier with `d1 execute --file=schema.sql`.)
 
 -- One row per registered name. The browser keeps the secret token; only its
 -- SHA-256 hash is stored. best_* hold the player's personal best.
