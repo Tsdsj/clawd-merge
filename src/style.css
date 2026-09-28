@@ -490,6 +490,8 @@ body {
 .sheet {
   width: min(340px, 100%);
   max-height: 100%;
+  overflow-y: auto; /* short screens (landscape phones): scroll instead of clipping */
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -787,6 +789,32 @@ body.modal-open .board {
   }
 }
 
+.credit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.8;
+}
+
+.credit a {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px; /* comfortable tap target around the 14px icon */
+  color: var(--muted);
+  border-radius: 50%;
+  transition: color 0.2s, background 0.2s;
+}
+
+.credit a:hover,
+.credit a:focus-visible {
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.08);
+}
+
 /* Narrow phones: tighten the HUD so everything fits on one row. */
 @media (max-width: 380px) {
   .app {
@@ -827,6 +855,20 @@ body.modal-open .board {
   }
 }
 
+@media (max-height: 520px) {
+  #name-crab,
+  #acc-crab {
+    display: none;
+  }
+  .modal {
+    padding: 10px;
+  }
+  .sheet {
+    gap: 6px;
+    padding: 14px 16px 12px;
+  }
+}
+
 /* Landscape phones: HUD in a column on the left, board fills the height. */
 @media (orientation: landscape) and (max-height: 540px) {
   .app {
@@ -861,6 +903,11 @@ body.modal-open .board {
     flex: 0 0 auto;
     width: auto;
     aspect-ratio: 400 / 640;
+  }
+  .credit {
+    position: fixed;
+    left: calc(env(safe-area-inset-left) + 12px);
+    bottom: calc(env(safe-area-inset-bottom) + 6px);
   }
   .legend {
     display: flex;

@@ -27,7 +27,11 @@ const DROP_COOLDOWN = 0.5;
 // planning — worth far more than lucky low-level cascades.
 export const RULES = {
   dangerGrace: 1.2, // a freshly spawned Clawd doesn't count toward game over yet
-  gameOverTime: 2.5, // seconds above the line before game over
+  gameOverTime: 3, // seconds a settled Clawd may stay above the line before game over
+  // Clawds knocked into the air by a big merge don't count while airborne; a
+  // Clawd counts once it has rested on the pile (connected to the ground) this long.
+  landedTime: 0.15,
+  flyingSpeed: 250, // world units / s — faster than this is still in flight
   spawnWeights: [22, 22, 22, 18, 16], // only the 5 smallest Clawds are ever dropped
   points: (k) => 2 ** k, // merging a pair of level-k Clawds
   comboStep: 0.25, // each chained merge adds +25%…
@@ -427,8 +431,11 @@ export class Game {
   checkDanger(dt) {
     let above = false;
     let near = false;
+    const supported = this.supportedBodies();
     for (const b of this.world.bodies) {
-      if (this.time - b.born < RULES.dangerGrace) continue;
+      const flying = Math.hypot(b.vx, b.vy) > RULES.flyingSpeed;
+      b.landedFor = supported.has(b) && !flying ? (b.landedFor ?? 0) + dt : 0;
+      if (this.time - b.born < RULES.dangerGrace || b.landedFor < RULES.landedTime) continue;
       let top = Infinity;
       for (const s of b.shapes) top = Math.min(top, b.y + s.oy - s.r);
       if (top < LINE_Y) above = true;
@@ -437,6 +444,34 @@ export class Game {
     this.warning = above ? 2 : near ? 1 : 0;
     this.danger = above ? this.danger + dt : Math.max(0, this.danger - dt * 2);
     if (this.danger >= RULES.gameOverTime) this.gameOver();
+  }
+
+  // Bodies connected to the floor/walls through a chain of contacts. A cluster
+  // of Clawds flying together after a big merge touches each other but not the
+  // ground, so it isn't "on the pile" yet.
+  supportedBodies() {
+    const neighbours = new Map();
+    const supported = new Set();
+    const queue = [];
+    const mark = (b) => {
+      if (!supported.has(b)) {
+        supported.add(b);
+        queue.push(b);
+      }
+    };
+    for (const b of this.world.bodies) if (b.sleeping) mark(b); // resting (their contacts aren't listed)
+    for (const c of this.world.contacts) {
+      if (c.ia < 0) {
+        mark(c.b); // touching a wall or the floor
+        continue;
+      }
+      if (!neighbours.has(c.a)) neighbours.set(c.a, []);
+      if (!neighbours.has(c.b)) neighbours.set(c.b, []);
+      neighbours.get(c.a).push(c.b);
+      neighbours.get(c.b).push(c.a);
+    }
+    while (queue.length) for (const n of neighbours.get(queue.pop()) ?? []) mark(n);
+    return supported;
   }
 
   gameOver() {
@@ -593,6 +628,7 @@ export class Game {
     this.drawParticles(ctx);
     this.drawTexts(ctx);
     this.drawFeverBar(ctx, now);
+    if (this.danger > 0 && !this.over) this.drawCountdown(ctx, now);
     if (this.clawMode) this.drawClawHint(ctx, now);
     if (this.drops === 0 && !this.over) this.drawHint(ctx, now);
     if (this.card) this.drawCard(ctx, now);
@@ -698,6 +734,27 @@ export class Game {
       ctx.fillStyle = 'rgba(255, 72, 72, 0.85)';
       ctx.fillRect(0, LINE_Y - 2, WORLD_W * Math.min(1, this.danger / RULES.gameOverTime), 4);
     }
+    ctx.restore();
+  }
+
+  // Seconds left before game over, drawn on top of everything so it's never hidden.
+  drawCountdown(ctx, now) {
+    const left = Math.max(0, RULES.gameOverTime - this.danger);
+    const pulse = 1 + 0.08 * Math.sin(now * 14);
+    ctx.save();
+    ctx.translate(WORLD_W / 2, LINE_Y + 26);
+    ctx.scale(pulse, pulse);
+    ctx.globalAlpha = Math.min(1, this.danger * 4);
+    ctx.font = `900 24px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = 'rgba(20, 18, 34, 0.9)';
+    const text = `危险 ${left.toFixed(1)}`;
+    ctx.strokeText(text, 0, 0);
+    ctx.fillStyle = '#FF6B6B';
+    ctx.fillText(text, 0, 0);
     ctx.restore();
   }
 

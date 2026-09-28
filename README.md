@@ -45,7 +45,7 @@
 | 重开 | 「重新开始」按钮 | 同左，或按 R |
 
 - 两只**同级**的 Clawd 碰到一起，会合成为下一级。
-- Clawd 堆过红色虚线，并且停留超过 2.5 秒，游戏结束。
+- 落稳的 Clawd 堆过红色虚线并停留 3 秒，游戏结束（警戒线下方会显示倒计时；被大合成炸飞、还在空中的 Clawd 不算）。
 - 只会掉落最小的 5 种 Clawd；越往后，大一点的掉得越多。
 - 手机横屏也能玩，还可以「添加到主屏幕」当 App 用。
 
@@ -164,7 +164,7 @@ A Suika-style ("合成大西瓜") physics merge game starring Clawd, Claude's or
 ## How to play
 
 - **Phone**: drag to aim, release to drop. **Desktop**: mouse or ← / →, click or Space to drop.
-- Two Clawds of the same level merge into the next level. If the pile stays above the red dashed line for 2.5 s, the game is over.
+- Two Clawds of the same level merge into the next level. If the settled pile stays above the red dashed line for 3 s (a countdown is shown; Clawds still flying after a big merge don't count), the game is over.
 - The 11 levels: Baby → Heart → Coffee → Glasses → Shades → Top hat → Skateboard → Cowboy → Ninja → Wizard → Big Clawd (crown). Every level has its own body colour; only the final Big Clawd wears the official Claude orange. A rare **Rainbow Clawd** upgrades whatever it touches.
 
 ## Mechanics
