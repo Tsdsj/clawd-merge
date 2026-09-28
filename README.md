@@ -1,49 +1,200 @@
-# 合成大Clawd · clawd-merge
+# 合成大Clawd · Clawd Merge
 
-A "合成大西瓜"-style merge game starring Claude's orange pixel crab, Clawd. Zero dependencies: native ES modules + Canvas + a small hand-written physics engine, deployable directly to GitHub Pages.
+**把两只一样的像素小 Clawd 碰在一起，合成更大的 Clawd，直到合出戴王冠的大Clawd。**
 
-## Running locally
+简体中文 | [English](#english)
+
+一个「合成大西瓜」式的物理合成小游戏，主角是 Claude 的橙色像素小螃蟹 Clawd。11 级 Clawd 各有各的小配件：爱心、咖啡、墨镜、礼帽、滑板、魔法帽……
+
+整个项目**零依赖、零构建**：原生 ES Module + Canvas，物理引擎是手写的，打开网页就能玩；排行榜是一个同样零依赖的 Cloudflare Worker。
+
+**▶ 在线试玩：<https://tsdsj.github.io/clawd-merge/>**（手机、电脑都可以）
+
+<table>
+  <tr>
+    <td><img src="docs/screenshot-game.png" alt="游戏画面" width="260"></td>
+    <td><img src="docs/screenshot-unlock.png" alt="狂热模式与解锁新 Clawd" width="260"></td>
+    <td><img src="docs/screenshot-rank.png" alt="排行榜" width="260"></td>
+  </tr>
+</table>
+
+---
+
+## 目录
+
+- [怎么玩](#怎么玩)
+- [11 只 Clawd](#11-只-clawd)
+- [特殊机制](#特殊机制)
+- [计分与难度](#计分与难度)
+- [排行榜](#排行榜)
+- [本地运行](#本地运行)
+- [部署](#部署)
+- [技术实现](#技术实现)
+- [仓库结构](#仓库结构)
+- [声明与许可](#声明与许可)
+
+---
+
+## 怎么玩
+
+| | 手机 | 电脑 |
+| --- | --- | --- |
+| 瞄准 | 按住棋盘左右拖动 | 鼠标移动，或 ← / → (A / D) |
+| 投放 | 松手 | 点击，或 空格 / ↓ |
+| 钳子 | 点右上角钳子按钮，再点一只 Clawd | 同左，或按 C |
+| 重开 | 「重新开始」按钮 | 同左，或按 R |
+
+- 两只**同级**的 Clawd 碰到一起，会合成为下一级。
+- Clawd 堆过红色虚线，并且停留超过 2.5 秒，游戏结束。
+- 只会掉落最小的 5 种 Clawd；越往后，大一点的掉得越多。
+- 手机横屏也能玩，还可以「添加到主屏幕」当 App 用。
+
+## 11 只 Clawd
+
+| 级 | 名字 | 特征 | 级 | 名字 | 特征 |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 小Clawd | 原版 Clawd | 7 | 滑板Clawd | 反戴棒球帽 + 滑板 |
+| 2 | 爱心Clawd | 腮红 + 小爱心 | 8 | 牛仔Clawd | 牛仔帽 + 警长星 |
+| 3 | 咖啡Clawd | 端着一杯热咖啡 | 9 | 忍者Clawd | 头巾 + 面罩 |
+| 4 | 眼镜Clawd | 圆框眼镜 | 10 | 魔法Clawd | 巫师帽 + 魔杖 |
+| 5 | 墨镜Clawd | 酷酷的墨镜 | 11 | 大Clawd | 宝石王冠 |
+| 6 | 礼帽Clawd | 绅士礼帽 | ★ | 彩虹Clawd | 稀有万能牌 |
+
+没合成过的 Clawd 在图鉴里是「???」剪影，第一次合出来会弹出解锁卡片。
+
+## 特殊机制
+
+| 机制 | 说明 |
+| --- | --- |
+| **连击** | 1.2 秒内连续合成算连击，每连一次得分 +25%，最高 ×2 |
+| **狂热模式** | 合成会充满棋盘顶部的能量条，满了进入 8 秒狂热，得分 ×2 |
+| **彩虹Clawd** | 稀有掉落，碰到谁就让谁直接升一级 |
+| **钳子** | 每局第一次合出 7 级及以上的每一级，各奖励一个钳子（最多存 3 个），可以夹走任意一只 Clawd |
+| **两只大Clawd** | 合在一起会「升天」，得到一大笔奖励分 |
+
+## 计分与难度
+
+两只 k 级 Clawd 合成得 **2^k** 分：合出高级 Clawd 靠的是规划，所以值的分远比低级连锁多。
+
+难度是用模拟玩家反复调出来的：
+
+| 模拟玩家 | 平均分 | 平均投放次数 |
+| --- | --- | --- |
+| 一直点同一个位置 | ~6,000 | 149 |
+| 随机乱点 | ~4,600 | 131 |
+| 简单策略（找同级） | ~9,700 | 162 |
+| 预判落点（每次模拟 12 个位置） | ~24,000 | 231 |
+
+一直点同一个位置的玩家，分数只有会规划的玩家的四分之一左右。
+
+## 排行榜
+
+- 第一次进入要起一个用户名（2~12 个字，不能重名），名字和当前浏览器绑定。
+- 每人只计最佳成绩；游戏结束时显示你的全球排名。
+- 后端是 Cloudflare Workers + D1，自带防刷校验。部署方法见 [`leaderboard/README.md`](leaderboard/README.md)。
+- 没配置排行榜地址（[`src/config.js`](src/config.js)）时，游戏照常单机运行。
+
+## 本地运行
+
+需要 Node 22.5+，**不用 `npm install`**。
 
 ```bash
 npm start
 ```
 
-Open http://localhost:5173 . Phones on the same Wi-Fi can use the Network address printed in the terminal. Needs Node 18+, no `npm install`.
-Append `?debug` to the URL to see every Clawd's collision circles.
+打开 <http://localhost:5173>；同一 Wi-Fi 下的手机可以用终端打印的局域网地址访问。
+
+| 命令 / 地址 | 作用 |
+| --- | --- |
+| `?debug` | 在网址后加上，显示每只 Clawd 的碰撞体 |
+| `npm test` | 运行排行榜接口测试 |
+| `npm run lb:dev` | 启动本地排行榜 API（D1 用 Node 自带 SQLite 模拟），配合 `?api=http://localhost:8787` 使用 |
+| `npm run icons` | 重新生成主屏幕图标 |
+
+## 部署
+
+- **游戏**：仓库根目录就是网站。在 GitHub 仓库的 Settings → Pages 里选 `Deploy from a branch` → `main` / `(root)`。
+- **排行榜**：见 [`leaderboard/README.md`](leaderboard/README.md)。
+
+## 技术实现
+
+- **物理引擎**（[`src/physics.js`](src/physics.js)）：每只 Clawd 是一组圆组成的刚体，包括帽子、咖啡杯、滑板等配件的碰撞圆，所以滚到墙边也不会被边框挡住。求解器用 sequential impulse，带 warm starting 和独立的位置修正；静止的一堆 Clawd 会按「岛」整体休眠，不会抖动蠕动。
+- **像素画**（[`src/crabs.js`](src/crabs.js)）：所有 Clawd 都是 ASCII 字符画，运行时按屏幕分辨率栅格化并缓存，没有任何图片素材。
+- **音效**（[`src/audio.js`](src/audio.js)）：WebAudio 实时合成的 8-bit 音效，合成音高随等级和连击升高。
+
+## 仓库结构
+
+```
+├── index.html            页面
+├── src/
+│   ├── main.js           布局、输入、主循环、排行榜界面
+│   ├── game.js           游戏规则（RULES）、合成、特效、渲染
+│   ├── physics.js        刚体物理引擎
+│   ├── crabs.js          11 级 Clawd 的像素画和碰撞体
+│   ├── audio.js          音效
+│   ├── leaderboard.js    排行榜客户端
+│   ├── config.js         排行榜 API 地址
+│   └── style.css
+├── leaderboard/          排行榜后端（Cloudflare Worker + D1）
+├── scripts/make-icons.mjs  生成 PNG 图标（零依赖）
+├── icons/  docs/         图标、README 截图
+└── serve.mjs             本地静态服务器
+```
+
+## 声明与许可
+
+- Clawd 是 Anthropic 的 Claude Code 吉祥物。本项目是粉丝自制的小游戏，**与 Anthropic 无关**，也未获其背书。
+- 代码以 [MIT](LICENSE) 协议开源。
+
+---
+
+<a id="english"></a>
+
+# 合成大Clawd · Clawd Merge (English)
+
+**Merge two identical pixel Clawds into a bigger one, all the way up to the crowned Big Clawd.**
+
+A Suika-style ("合成大西瓜") physics merge game starring Clawd, Claude's orange pixel crab. It has **no dependencies and no build step**: native ES modules, Canvas and a hand-written physics engine. The leaderboard is a Cloudflare Worker, also dependency-free.
+
+**▶ Play: <https://tsdsj.github.io/clawd-merge/>** (phone or desktop)
 
 ## How to play
 
-- **Phone**: press and drag to aim, release to drop. Landscape is supported too
-- **Desktop**: aim with the mouse, click to drop; or ← / → (A / D) to move, Space / ↓ to drop, C for the claw, R to restart
-- Two Clawds of the same level merge into the next level when they touch; if the pile stays above the red dashed line for 2.5 s, the game ends
+- **Phone**: drag to aim, release to drop. **Desktop**: mouse or ← / →, click or Space to drop.
+- Two Clawds of the same level merge into the next level. If the pile stays above the red dashed line for 2.5 s, the game is over.
+- The 11 levels: Baby → Heart → Coffee → Glasses → Shades → Top hat → Skateboard → Cowboy → Ninja → Wizard → Big Clawd (crown). A rare **Rainbow Clawd** upgrades whatever it touches.
 
-The 11 Clawds: 小 → 爱心 → 咖啡 → 眼镜 → 墨镜 → 礼帽 → 滑板 → 牛仔 → 忍者 → 魔法 → 大Clawd
+## Mechanics
 
-### Extra mechanics
-
-| Mechanic | Description |
+| Mechanic | What it does |
 | --- | --- |
-| Combo | Chained merges add +25% each, up to ×2 |
-| Fever mode | Merging fills the meter along the top of the board; when full, you get 8 s of double score |
-| Rainbow Clawd | Rare drop, a wildcard: whatever it touches goes up one level |
-| Claw | The first time in a game you create each Clawd of level 7 or higher, you get one claw (max 3); tap the button, then tap a Clawd to remove it |
-| Collection | Clawds you've never created show as silhouettes; the first time you create one, an unlock card pops up |
+| Combo | Merges within 1.2 s chain: +25% each, capped at ×2 |
+| Fever | Merges fill a meter; when it's full, you get 8 s of double score |
+| Claw | Earned the first time per game you create each level ≥ 7 (max 3). Tap a Clawd to remove it |
+| Collection | Unseen Clawds show as silhouettes; the first time you create one, an unlock card pops up |
 
-Scoring: merging two level-k Clawds gives 2^k points, so high-level merges (which need planning) are worth far more than random low-level cascades.
-Balance was tuned with simulated players: a bot that always clicks the same spot averages ~6.7k, while a lookahead bot averages ~18k.
+Scoring: merging two level-k Clawds scores **2^k**. Balance was tuned with simulated players. Clicking one spot averages ~6k; a lookahead player averages ~24k.
 
-## Deploying (GitHub Pages)
+## Leaderboard
 
-The repo root is the site itself; in the repo's Settings → Pages, choose `Deploy from a branch` → `main` / `(root)`.
+Players pick a unique name once (bound to the browser via a secret token). Each player's best score is ranked. The backend is Cloudflare Workers + D1, with single-use game sessions, plausibility checks on elapsed time and score, and rate limits. See [`leaderboard/README.md`](leaderboard/README.md) to deploy it, then set `LEADERBOARD_API` in [`src/config.js`](src/config.js). Without it, the game runs offline.
 
-## Code structure
+## Run locally
 
-| File | Contents |
-| --- | --- |
-| `src/physics.js` | Rigid-body physics: compound-circle bodies, sequential-impulse solver (warm starting), position correction, island sleeping |
-| `src/crabs.js` | ASCII pixel art for every Clawd, hitboxes, palette, sprite cache |
-| `src/game.js` | Game logic and rules (`RULES`), combo / fever / rainbow / claw, effects and rendering |
-| `src/main.js` | Page layout, touch / mouse / keyboard input, main loop |
-| `src/audio.js` | WebAudio chiptune sound effects |
-| `scripts/make-icons.mjs` | Generates the home-screen PNG icons (zero dependencies) |
-| `serve.mjs` | Local static server |
+```bash
+npm start        # http://localhost:5173  (Node 22.5+, no npm install)
+npm test         # leaderboard API tests
+npm run lb:dev   # local leaderboard API → open the game with ?api=http://localhost:8787
+```
+
+Add `?debug` to the URL to see collision shapes.
+
+## Under the hood
+
+- **Physics**: compound-circle rigid bodies. Accessories get their own circles, so props never clip through walls. The solver uses sequential impulses with warm starting plus a position-correction pass, and island sleeping keeps resting piles perfectly still.
+- **Art**: every Clawd is ASCII pixel art, rasterised at the screen's resolution. There are no image assets.
+- **Audio**: 8-bit sound effects synthesised live with WebAudio.
+
+## Disclaimer & license
+
+Clawd is Anthropic's mascot for Claude Code. This is an unofficial fan game, **not affiliated with or endorsed by Anthropic**. Code is released under the [MIT](LICENSE) license.

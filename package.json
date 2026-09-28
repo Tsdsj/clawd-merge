@@ -1,11 +1,20 @@
 {
   "name": "clawd-merge",
   "private": true,
-  "version": "0.1.0",
-  "description": "合成大Clawd — a pixel Clawd merge game (Suika-style), zero dependencies",
+  "version": "1.0.0",
+  "description": "合成大Clawd — a pixel Clawd merge game (Suika-style) with a Cloudflare leaderboard, zero dependencies",
   "type": "module",
+  "license": "MIT",
+  "repository": "github:Tsdsj/clawd-merge",
+  "homepage": "https://tsdsj.github.io/clawd-merge/",
   "scripts": {
     "start": "node serve.mjs",
-    "dev": "node serve.mjs"
+    "dev": "node serve.mjs",
+    "test": "node --test 'leaderboard/test/*.test.mjs'",
+    "lb:dev": "node leaderboard/test/dev-server.mjs",
+    "icons": "node scripts/make-icons.mjs"
+  },
+  "engines": {
+    "node": ">=22.5"
   }
 }
