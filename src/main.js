@@ -269,30 +269,84 @@ async function submitScore(result) {
   }
 }
 
+const RANK_PAGE = 20;
+const RANK_MAX = 100; // the API returns at most this many
+let rankLimit = RANK_PAGE;
+
+function rankStatus(text) {
+  const li = document.createElement('li');
+  li.className = 'status';
+  li.textContent = text;
+  return li;
+}
+
 async function openRanks() {
+  rankLimit = RANK_PAGE;
+  $('rank-list').replaceChildren(rankStatus('加载中…'));
+  $('rank-count').textContent = '';
+  $('rank-me').classList.add('hidden');
+  showModal(rankModal, true);
+  await loadRanks();
+}
+
+async function loadRanks() {
   const list = $('rank-list');
   const meRow = $('rank-me');
-  list.innerHTML = '<li class="status">加载中…</li>';
-  meRow.classList.add('hidden');
-  showModal(rankModal, true);
   try {
     const myId = leaderboard.player?.id;
-    const entries = await leaderboard.top(50);
-    list.replaceChildren(...entries.map((e) => rankRow(e, e.id === myId)));
-    if (!entries.length) list.innerHTML = '<li class="status">还没有人上榜，快来当第一名!</li>';
-    if (myId && !entries.some((e) => e.id === myId)) {
-      const me = await leaderboard.me();
-      if (me.rank) {
-        meRow.replaceChildren(...rankRow({ ...me.player, rank: me.rank, score: me.best, level: me.bestLevel }).children);
-        meRow.classList.remove('hidden');
+    const [{ entries, total }, me] = await Promise.all([
+      leaderboard.top(rankLimit),
+      myId ? leaderboard.me().catch(() => null) : null,
+    ]);
+    $('rank-count').textContent = total ? `共 ${total} 人上榜` : '';
+    if (!entries.length) {
+      list.replaceChildren(rankStatus('还没有人上榜，快来当第一名!'));
+    } else {
+      list.replaceChildren(...entries.map((e) => rankRow(e, e.id === myId)));
+      // More players than shown (and the API can serve more): offer the next page.
+      if (total > entries.length && rankLimit < RANK_MAX) {
+        const li = document.createElement('li');
+        li.className = 'more';
+        const btn = document.createElement('button');
+        btn.className = 'link-btn';
+        btn.textContent = `查看更多（第 ${entries.length + 1} ~ ${Math.min(total, rankLimit + RANK_PAGE, RANK_MAX)} 名）`;
+        btn.addEventListener('click', async () => {
+          btn.disabled = true;
+          btn.textContent = '加载中…';
+          const scroll = list.scrollTop;
+          rankLimit = Math.min(RANK_MAX, rankLimit + RANK_PAGE);
+          await loadRanks();
+          list.scrollTop = scroll;
+        });
+        li.append(btn);
+        list.append(li);
       }
     }
+
+    // Always pin "my rank" at the bottom so players can find themselves.
+    meRow.classList.toggle('hidden', !me);
+    if (me) {
+      const shown = me.rank && me.rank <= entries.length;
+      const card = me.rank
+        ? rankRow({ ...me.player, rank: me.rank, score: me.best, level: me.bestLevel }, true)
+        : null;
+      const label = document.createElement('span');
+      label.className = 'rank-me-label';
+      label.textContent = me.rank ? (shown ? '我的名次 · 点击定位' : '我的名次') : '我还没有上榜成绩，打完一局就有了';
+      meRow.replaceChildren(label, ...(card ? card.children : []));
+      meRow.classList.toggle('clickable', Boolean(shown));
+      meRow.onclick = shown
+        ? () => {
+            const row = list.querySelector('li.me');
+            row?.scrollIntoView({ block: 'center', behavior: 'smooth' });
+            row?.classList.remove('flash');
+            void row?.offsetWidth;
+            row?.classList.add('flash');
+          }
+        : null;
+    }
   } catch (err) {
-    list.innerHTML = '';
-    const li = document.createElement('li');
-    li.className = 'status';
-    li.textContent = err.message;
-    list.append(li);
+    list.replaceChildren(rankStatus(err.message));
   }
 }
 

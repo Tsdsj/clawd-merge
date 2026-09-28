@@ -11,7 +11,7 @@
 // Game
 //   POST /api/session           (Bearer)                 → { sessionId }
 //   POST /api/score             (Bearer) { sessionId, score, drops, maxLevel } → { best, rank, improved }
-//   GET  /api/leaderboard       ?limit=50                → { entries: [...] }
+//   GET  /api/leaderboard       ?limit=20                → { entries: [...], total }
 //
 // Players are either guests (any name, disambiguated by a random 4-digit tag) or
 // LINUX DO accounts (name = LINUX DO username, unique by account id). A browser
@@ -428,14 +428,17 @@ async function submitScore(request, env) {
 }
 
 async function leaderboard(url, env) {
-  const limit = Math.min(LEADERBOARD_MAX, Math.max(1, Number(url.searchParams.get('limit')) || 50));
-  const { results } = await env.DB.prepare(
-    `SELECT id, name, tag, avatar, trust_level, linuxdo_id, best_score AS score, best_level AS level, best_at AS at
-       FROM players WHERE best_score > 0
-      ORDER BY best_score DESC, best_at ASC LIMIT ?`,
-  )
-    .bind(limit)
-    .all();
+  const limit = Math.min(LEADERBOARD_MAX, Math.max(1, Number(url.searchParams.get('limit')) || 20));
+  const [{ results }, count] = await Promise.all([
+    env.DB.prepare(
+      `SELECT id, name, tag, avatar, trust_level, linuxdo_id, best_score AS score, best_level AS level, best_at AS at
+         FROM players WHERE best_score > 0
+        ORDER BY best_score DESC, best_at ASC LIMIT ?`,
+    )
+      .bind(limit)
+      .all(),
+    env.DB.prepare('SELECT COUNT(*) AS n FROM players WHERE best_score > 0').first(),
+  ]);
   const entries = results.map((r, i) => ({
     rank: i + 1,
     ...publicPlayer(r),
@@ -443,7 +446,7 @@ async function leaderboard(url, env) {
     level: r.level,
     at: r.at,
   }));
-  return json({ entries }, 200, { 'Cache-Control': 'public, max-age=10' });
+  return json({ entries, total: count.n }, 200, { 'Cache-Control': 'public, max-age=10' });
 }
 
 // ---------- helpers ----------

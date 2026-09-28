@@ -146,6 +146,10 @@ test('score flow: best score, rank and leaderboard order', async () => {
     ],
   );
   assert.match(board.data.entries[0].tag, /^\d{4}$/);
+  assert.equal(board.data.total, 2);
+  const top1 = await call('GET', '/api/leaderboard?limit=1');
+  assert.equal(top1.data.entries.length, 1);
+  assert.equal(top1.data.total, 2); // total counts everyone ranked, not just this page
   const me = await call('GET', '/api/me', { token: a.token });
   assert.equal(me.data.rank, 2);
   assert.equal(me.data.games, 1);

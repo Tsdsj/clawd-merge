@@ -328,8 +328,10 @@ export class Game {
       const size = Math.min(26, 14 + this.combo * 2);
       this.floatText(`连击 ×${this.combo}`, x, y - 34, size, '#FFD84D', 1.1);
     }
-    this.burst(x, y, 10 + nl * 3, colors ?? (nl === MAX_LEVEL ? ['#F7C948', '#FFE08A', '#FFFFFF'] : null));
-    this.ring(x, y, defOf(nl).width * 0.3, defOf(nl).width * 0.9, rainbow ? '#FFFFFF' : '#FFD6B8');
+    // Debris in the new Clawd's colour, so you see what you just made.
+    const tint = defOf(nl).color;
+    this.burst(x, y, 10 + nl * 3, colors ?? (nl === MAX_LEVEL ? ['#F7C948', '#FFE08A', tint, '#FFFFFF'] : [tint, tint, '#FFFFFF', defOf(level).color]));
+    this.ring(x, y, defOf(nl).width * 0.3, defOf(nl).width * 0.9, rainbow ? '#FFFFFF' : tint);
     if (nl >= 7) this.shake = Math.max(this.shake, 2 + (nl - 7) * 1.5);
 
     if (nl > this.maxLevel) {

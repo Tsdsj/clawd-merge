@@ -563,13 +563,50 @@ body {
 .rank-list {
   flex: 1;
   min-height: 0;
+  margin-right: -6px;
+  padding-right: 6px; /* room for the scrollbar so scores never get clipped */
   overflow-y: auto;
+  overscroll-behavior: contain;
   list-style: none;
   -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(217, 119, 87, 0.55) transparent;
+}
+
+.rank-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.rank-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.rank-list::-webkit-scrollbar-thumb {
+  background: rgba(217, 119, 87, 0.45);
+  border-radius: 3px;
+}
+
+.rank-list::-webkit-scrollbar-thumb:hover {
+  background: rgba(217, 119, 87, 0.75);
+}
+
+.rank-count {
+  margin-top: 2px;
+  font-size: 12px;
+  text-align: left;
+  color: var(--muted);
+}
+
+.rank-list li.more {
+  display: block;
+  padding: 12px 0 6px;
+  text-align: center;
+  border: none;
 }
 
 .rank-list li,
 .rank-me {
+  min-height: 42px;
   display: grid;
   grid-template-columns: 30px 22px minmax(0, 1fr) auto auto;
   align-items: center;
@@ -638,8 +675,44 @@ body {
 }
 
 .rank-me {
-  margin-top: 6px;
+  margin-top: 8px;
+  padding-top: 20px;
+  position: relative;
   border: none;
+  box-shadow: 0 0 0 1px rgba(217, 119, 87, 0.45);
+}
+
+.rank-me.clickable {
+  cursor: pointer;
+}
+
+.rank-me-label {
+  position: absolute;
+  top: 3px;
+  left: 8px;
+  font-size: 11px;
+  color: var(--orange);
+}
+
+.rank-me:has(.rank-me-label:only-child) {
+  display: block;
+  padding: 12px 8px;
+}
+
+.rank-me .rank-me-label:only-child {
+  position: static;
+  color: var(--muted);
+}
+
+.rank-list li.flash {
+  animation: rank-flash 1.2s ease-out;
+}
+
+@keyframes rank-flash {
+  0%,
+  40% {
+    background: rgba(255, 216, 77, 0.35);
+  }
 }
 
 body.modal-open .board {

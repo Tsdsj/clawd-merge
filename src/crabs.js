@@ -64,19 +64,23 @@ const BASE_HITBOX = [
 
 const BLUSH = { x: 3, y: 4, art: ['PP......PP'] };
 
+// `color` is the body colour: every level gets its own so they're recognisable
+// at a glance; only the final 大Clawd wears the official Clawd orange.
 // `width` is the body width in world units (the board is 400 wide).
 // `hitbox` adds circles for accessories so hats & props collide and never get
 // pushed through the walls.
 export const LEVELS = [
-  { name: '小Clawd', width: 34, layers: [], hitbox: [] },
+  { name: '小Clawd', color: '#F2A96B', width: 34, layers: [], hitbox: [] },
   {
     name: '爱心Clawd',
+    color: '#F28DB2',
     width: 45,
     layers: [BLUSH, { x: 12, y: -5, art: ['WR.RR', 'RRRRR', '.RRR.', '..R..'] }],
     hitbox: [[14.5, -3, 2.3]],
   },
   {
     name: '咖啡Clawd',
+    color: '#B98056',
     width: 58,
     layers: [
       {
@@ -92,6 +96,7 @@ export const LEVELS = [
   },
   {
     name: '眼镜Clawd',
+    color: '#F2CB4E',
     width: 72,
     layers: [
       {
@@ -104,6 +109,7 @@ export const LEVELS = [
   },
   {
     name: '墨镜Clawd',
+    color: '#63C77B',
     width: 88,
     layers: [
       {
@@ -116,6 +122,7 @@ export const LEVELS = [
   },
   {
     name: '礼帽Clawd',
+    color: '#4EC0D6',
     width: 106,
     layers: [
       {
@@ -140,9 +147,10 @@ export const LEVELS = [
   },
   {
     name: '滑板Clawd',
+    color: '#5B87EE',
     width: 126,
     layers: [
-      { x: 0, y: -2, art: ['....UUUUUUUU....', 'UUUUUUUUUUUU....'] },
+      { x: 0, y: -2, art: ['....RRRRRRRR....', 'RRRRRRRRRRRR....'] },
       { x: 0, y: 9, art: ['...x.x....x.x...'] },
       { x: -1, y: 8, art: ['V................V', 'VVVVVVVVVVVVVVVVVV', '..YY..........YY..'] },
     ],
@@ -157,6 +165,7 @@ export const LEVELS = [
   },
   {
     name: '牛仔Clawd',
+    color: '#9D7CEA',
     width: 148,
     layers: [
       {
@@ -181,6 +190,7 @@ export const LEVELS = [
   },
   {
     name: '忍者Clawd',
+    color: '#E2607D',
     width: 172,
     layers: [
       {
@@ -188,9 +198,9 @@ export const LEVELS = [
         y: 0,
         art: [
           '.....SSSSSSSSSSSS..',
-          '.RRRRRRRRRRRRRRRR..',
-          'RR...S..........S..',
-          'R....S..........S..',
+          '.YYYYYYYYYYYYYYYY..',
+          'YY...S..........S..',
+          'Y....S..........S..',
           '.....SSSSSSSSSSSS..',
           '.....SSSSSSSSSSSS..',
         ],
@@ -203,6 +213,7 @@ export const LEVELS = [
   },
   {
     name: '魔法Clawd',
+    color: '#EDE4D3',
     width: 198,
     layers: [
       {
@@ -234,6 +245,7 @@ export const LEVELS = [
   },
   {
     name: '大Clawd',
+    color: '#D97757',
     width: 228,
     layers: [
       BLUSH,
@@ -339,8 +351,9 @@ export function getSprite(level, cellPx, { blink = false, frame = 0, silhouette 
     canvas.width = layout.cols * px;
     canvas.height = layout.rows * px;
     const ctx = canvas.getContext('2d');
+    const body = defOf(level).color ?? PALETTE['#'];
     for (const { x, y, ch } of layout.cells) {
-      ctx.fillStyle = silhouette ? '#3A3B55' : PALETTE[ch];
+      ctx.fillStyle = silhouette ? '#3A3B55' : ch === '#' ? body : PALETTE[ch];
       ctx.fillRect((x - layout.minX) * px, (y - layout.minY) * px, px, px);
     }
     sprite = { canvas, minX: layout.minX, minY: layout.minY, cols: layout.cols, rows: layout.rows };

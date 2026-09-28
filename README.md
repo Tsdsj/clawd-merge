@@ -51,15 +51,16 @@
 
 ## 11 只 Clawd
 
-| 级 | 名字 | 特征 | 级 | 名字 | 特征 |
-| --- | --- | --- | --- | --- | --- |
-| 1 | 小Clawd | 原版 Clawd | 7 | 滑板Clawd | 反戴棒球帽 + 滑板 |
-| 2 | 爱心Clawd | 腮红 + 小爱心 | 8 | 牛仔Clawd | 牛仔帽 + 警长星 |
-| 3 | 咖啡Clawd | 端着一杯热咖啡 | 9 | 忍者Clawd | 头巾 + 面罩 |
-| 4 | 眼镜Clawd | 圆框眼镜 | 10 | 魔法Clawd | 巫师帽 + 魔杖 |
-| 5 | 墨镜Clawd | 酷酷的墨镜 | 11 | 大Clawd | 宝石王冠 |
-| 6 | 礼帽Clawd | 绅士礼帽 | ★ | 彩虹Clawd | 稀有万能牌 |
+| 级 | 名字 | 颜色 | 特征 | 级 | 名字 | 颜色 | 特征 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 小Clawd | 杏色 | 最小的 Clawd | 7 | 滑板Clawd | 蓝 | 红色棒球帽 + 滑板 |
+| 2 | 爱心Clawd | 粉 | 腮红 + 小爱心 | 8 | 牛仔Clawd | 紫 | 牛仔帽 + 警长星 |
+| 3 | 咖啡Clawd | 焦糖 | 端着一杯热咖啡 | 9 | 忍者Clawd | 玫红 | 金色头巾 + 面罩 |
+| 4 | 眼镜Clawd | 黄 | 圆框眼镜 | 10 | 魔法Clawd | 奶白 | 巫师帽 + 魔杖 |
+| 5 | 墨镜Clawd | 绿 | 酷酷的墨镜 | 11 | 大Clawd | **Claude 橙** | 宝石王冠 |
+| 6 | 礼帽Clawd | 青 | 绅士礼帽 | ★ | 彩虹Clawd | 彩虹 | 稀有万能牌 |
 
+每一级都有自己的颜色，一眼就能认出来；只有合到最后的大Clawd 才是 Claude 官方的橙色。
 没合成过的 Clawd 在图鉴里是「???」剪影，第一次合出来会弹出解锁卡片。
 
 ## 特殊机制
@@ -164,7 +165,7 @@ A Suika-style ("合成大西瓜") physics merge game starring Clawd, Claude's or
 
 - **Phone**: drag to aim, release to drop. **Desktop**: mouse or ← / →, click or Space to drop.
 - Two Clawds of the same level merge into the next level. If the pile stays above the red dashed line for 2.5 s, the game is over.
-- The 11 levels: Baby → Heart → Coffee → Glasses → Shades → Top hat → Skateboard → Cowboy → Ninja → Wizard → Big Clawd (crown). A rare **Rainbow Clawd** upgrades whatever it touches.
+- The 11 levels: Baby → Heart → Coffee → Glasses → Shades → Top hat → Skateboard → Cowboy → Ninja → Wizard → Big Clawd (crown). Every level has its own body colour; only the final Big Clawd wears the official Claude orange. A rare **Rainbow Clawd** upgrades whatever it touches.
 
 ## Mechanics
 

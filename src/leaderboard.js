@@ -136,8 +136,10 @@ export const leaderboard = {
     });
   },
 
-  async top(limit = 50) {
-    return (await request(`/api/leaderboard?limit=${limit}`)).entries;
+  // → { entries, total } — the top `limit` players and how many are ranked overall.
+  async top(limit = 20) {
+    const data = await request(`/api/leaderboard?limit=${limit}`);
+    return { entries: data.entries, total: data.total ?? data.entries.length };
   },
 
   async me() {
