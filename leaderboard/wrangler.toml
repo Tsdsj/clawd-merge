@@ -12,4 +12,4 @@ BLOCKED_WORDS = ""
 binding = "DB"
 database_name = "clawd-merge"
 # Replace with the id printed by `npx wrangler d1 create clawd-merge`.
-database_id = "REPLACE_WITH_YOUR_DATABASE_ID"
+database_id = "9684a750-0039-4e4b-8fff-7f492dc945fd"
