@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    />
+    <meta name="description" content="合成大Clawd：把相同的像素小 Clawd 合成更大的 Clawd！" />
+    <meta name="theme-color" content="#1a1b2e" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="合成大Clawd" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="format-detection" content="telephone=no" />
+    <title>合成大Clawd · Clawd Merge</title>
+    <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="stylesheet" href="src/style.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header class="top">
+        <h1 class="title">合成大Clawd</h1>
+        <div class="hud">
+          <div class="score-box">
+            <div class="score-line"><span class="score-label">分数: </span><span id="score">0</span></div>
+            <div class="best">最高 <span id="best">0</span></div>
+          </div>
+          <div class="next-box">
+            <span>下一个</span>
+            <canvas id="next"></canvas>
+          </div>
+          <div class="actions">
+            <button id="claw" class="icon-btn claw-btn" aria-label="钳子：夹走一只 Clawd" title="钳子 (C)" disabled>
+              <svg viewBox="0 0 12 12" width="18" height="18" shape-rendering="crispEdges" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M5 0h2v2H5zM3 2h6v1H3zM2 3h2v1H2zM8 3h2v1H8zM1 4h2v1H1zM9 4h2v1H9zM1 5h1v2H1zM10 5h1v2h-1zM2 7h2v1H2zM8 7h2v1H8z"
+                />
+              </svg>
+              <span class="badge" id="claw-count">0</span>
+            </button>
+            <button id="sound" class="icon-btn" aria-label="音效开关">
+              <svg viewBox="0 0 12 12" width="18" height="18" shape-rendering="crispEdges" aria-hidden="true">
+                <path fill="currentColor" d="M1 4h2v4H1zM3 3h1v6H3zM4 2h1v8H4zM5 1h1v10H5z" />
+                <path class="waves" fill="currentColor" d="M7 4h1v4H7zM9 2h1v8H9z" />
+                <path
+                  class="mute"
+                  fill="currentColor"
+                  d="M7 4h1v1H7zM8 5h1v1H8zM9 6h1v1H9zM10 7h1v1h-1zM10 4h1v1h-1zM9 5h1v1H9zM8 6h1v1H8zM7 7h1v1H7z"
+                />
+              </svg>
+            </button>
+            <button id="restart" class="btn">重新开始</button>
+          </div>
+        </div>
+      </header>
+
+      <section class="stage" id="stage">
+        <div class="board" id="board">
+          <canvas id="game"></canvas>
+          <div class="overlay hidden" id="overlay">
+            <div class="panel">
+              <div class="over-title">游戏结束!</div>
+              <div class="final">最终分数: <b id="final">0</b></div>
+              <div class="final-sub">最高合成: <span id="final-level">小Clawd</span></div>
+              <div class="final-sub">历史最高: <span id="final-best">0</span></div>
+              <div class="new-best hidden" id="new-best">✦ 新纪录 ✦</div>
+              <button id="again" class="btn big">再来一局</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="legend" id="legend"></footer>
+    </main>
+    <script type="module" src="src/main.js"></script>
+  </body>
+</html>

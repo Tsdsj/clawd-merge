@@ -1,0 +1,11 @@
+{
+  "name": "clawd-merge",
+  "private": true,
+  "version": "0.1.0",
+  "description": "合成大Clawd — a pixel Clawd merge game (Suika-style), zero dependencies",
+  "type": "module",
+  "scripts": {
+    "start": "node serve.mjs",
+    "dev": "node serve.mjs"
+  }
+}

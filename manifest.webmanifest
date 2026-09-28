@@ -1,0 +1,17 @@
+{
+  "name": "合成大Clawd",
+  "short_name": "合成大Clawd",
+  "description": "把相同的像素小 Clawd 合成更大的 Clawd！",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1a1b2e",
+  "theme_color": "#1a1b2e",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
