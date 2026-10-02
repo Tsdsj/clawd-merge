@@ -2,8 +2,30 @@
 // keeps a secret token in localStorage), per-game sessions and score submission.
 import { LEADERBOARD_API } from './config.js';
 
-const PLAYER_KEY = 'clawd-merge:player';
-const apiBase = (new URLSearchParams(location.search).get('api') || LEADERBOARD_API).replace(/\/+$/, '');
+const isLoopback = (hostname) => ['localhost', '127.0.0.1', '[::1]'].includes(hostname);
+const localDevelopment = ['http:', 'https:'].includes(location.protocol) && isLoopback(location.hostname);
+
+function resolveApiBase() {
+  // Never let a shared production link redirect credentials or login codes.
+  if (localDevelopment) {
+    try {
+      const override = new URL(new URLSearchParams(location.search).get('api'));
+      if (
+        ['http:', 'https:'].includes(override.protocol) && isLoopback(override.hostname) &&
+        !override.username && !override.password && override.pathname === '/' &&
+        !override.search && !override.hash
+      ) return override.origin;
+    } catch {
+      // Missing or invalid override: use the configured API.
+    }
+  }
+  return LEADERBOARD_API.replace(/\/+$/, '');
+}
+
+const apiBase = resolveApiBase();
+// Keep deployed players signed in. Local identities are API-specific and never
+// adopt the old unscoped key, whose original API cannot be established safely.
+const PLAYER_KEY = localDevelopment ? `clawd-merge:player:dev:${apiBase}` : 'clawd-merge:player';
 
 export class LeaderboardError extends Error {
   constructor(code, message, status = 0) {

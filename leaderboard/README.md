@@ -96,3 +96,7 @@ npm run lb:dev    # 本地 API: http://localhost:8787
 ```
 
 本地 API 跑起来后，打开 `http://localhost:5173/?api=http://localhost:8787` 就能连它玩，点「用 LINUX DO 登录」会跳到假的授权页，随便填个用户名即可。
+
+API 覆盖参数只对 loopback 页面生效（`localhost`、`127.0.0.1`、`[::1]`），并且目标也必须是 loopback HTTP(S) origin；不接受路径、账号密码、查询参数或 fragment。生产页面与局域网 IP 页面忽略覆盖参数。无效参数回退到 `src/config.js` 配置的地址，不会向参数指定的目标发送登录 token 或登录码。
+
+本地身份按 API 地址分别保存，切换端口或主机名后需要使用对应身份；旧版共享的本地身份不会自动迁移，需重新登录或注册。线上身份存储键保持不变。

@@ -109,9 +109,13 @@ npm start
 | 命令 / 地址 | 作用 |
 | --- | --- |
 | `?debug` | 在网址后加上，显示每只 Clawd 的碰撞体 |
-| `npm test` | 运行排行榜接口测试 |
+| `npm test` | 运行排行榜接口与客户端安全回归测试 |
 | `npm run lb:dev` | 启动本地排行榜 API（D1 用 Node 自带 SQLite 模拟），配合 `?api=http://localhost:8787` 使用 |
 | `npm run icons` | 重新生成主屏幕图标 |
+
+`?api=` 仅在 `localhost`、`127.0.0.1` 或 `[::1]` 页面生效，目标必须是这些 loopback 主机的 HTTP(S) origin（可以带端口，不能带账号密码、路径、查询或 fragment）。线上和局域网 IP 页面忽略该参数，使用配置的 API。局域网手机访问仍可游玩，但不能通过参数切换到本地 API。
+
+本地调试身份按 API 地址隔离，不读取旧的共享身份键；升级后本地调试需要重新登录或注册。线上现有登录保持兼容。
 
 ## 部署
 
@@ -189,6 +193,8 @@ npm start        # http://localhost:5173  (Node 22.5+, no npm install)
 npm test         # leaderboard API tests
 npm run lb:dev   # local leaderboard API → open the game with ?api=http://localhost:8787
 ```
+
+API overrides work only on loopback pages (`localhost`, `127.0.0.1`, `[::1]`) and accept only loopback HTTP(S) origins. Production and LAN-IP pages ignore the override. Local identities are scoped to the API address; legacy local identities require signing in again. Existing production logins are preserved.
 
 Add `?debug` to the URL to see collision shapes.
 
