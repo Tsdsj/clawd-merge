@@ -95,6 +95,23 @@ body {
 .save-row { display: flex; gap: 8px; align-items: center; justify-content: center; flex: none; }
 .save-status { font-size: 11px; line-height: 1.5; color: #b5aec5; }
 .save-status.warning { color: #efc997; }
+#pending-btn { flex: none; min-height: 32px; color: #efad90; }
+.player-row:has(#pending-btn:not(.hidden)) { flex-wrap: wrap; }
+.pending-note { font-size: 11px; color: #e5caab; line-height: 1.5; padding: 5px 8px; background: #292a3e; border-radius: 5px; }
+.upload-card { margin-top: 12px; padding: 12px; border: 1px solid #55516b; background: #24283d; border-radius: 7px; text-align: left; }
+.upload-card strong { display: block; font-size: 14px; }
+.upload-card p { font-size: 12px; line-height: 1.7; margin-top: 6px; color: #c3bbcf; }
+.upload-card .btn { margin-top: 9px; width: 100%; min-height: 38px; font-size: 12px; }
+.upload-card[data-tone="success"] { border-color: #538875; }
+.upload-card[data-tone="success"] strong { color: #9cd9b9; }
+.upload-card[data-tone="warning"] strong { color: #f0cc9e; }
+.pending-sheet { width: min(390px, 100%); }
+.pending-list { list-style: none; width: 100%; text-align: left; }
+.pending-list li { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.pending-list b { font-size: 19px; }
+.pending-list p { font-size: 12px; line-height: 1.7; color: #c3bbcf; overflow-wrap: anywhere; }
+.pending-list button { margin: 8px 8px 0 0; min-height: 38px; }
+.board:has(.overlay:not(.hidden)) { touch-action: pan-y; }
 #restore-open { flex: none; min-height: 32px; color: #efad90; }
 .restore-sheet { position: relative; width: min(360px, 100%); }
 .restore-sheet h2 { padding: 8px 14px 0; }

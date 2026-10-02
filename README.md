@@ -53,7 +53,7 @@
 - 进行中的对局切后台或窗口失焦后，返回需要点「继续游戏」；物理、危险倒计时、狂热与冷却均暂停，恢复不会自动补投。
 - 已有投放的未结束对局重开需确认，取消保留原局；空局或结束后可直接重开。本机最高分、图鉴和账号不会因重开清除。
 - **断点续玩**：当前浏览器自动保留一份未完成对局，按 API 环境隔离。刷新后可恢复棋盘、分数、当前／下一只、道具和倒计时；新开前需确认。以界面最近一次「已保存」为准，不保证系统强杀前最后一帧无损。
-- 在线旧局恢复会只读核验原账号与凭证，不会续签。过期、换账号或断网时，可以明确选择转为本地继续；降级后不再补交。结束局会清除未完成存档，失败成绩的可靠补传尚未实现。
+- 在线旧局恢复会只读核验原账号与凭证，不会续签。过期、换账号或断网时，可以明确选择转为本地继续；降级后不再补交。结束时先保留成绩结果，再清理未完成棋盘，防止刷新把结束局误恢复。
 - 同一存档仅一个标签页写入；接管需原页暂停、保存并释放，原页无响应时关闭后重试。存档坏了不会自动删除；存储或浏览器互斥能力不可用时会提示临时游玩。自动存档需要支持 Web Locks 和 BroadcastChannel 的安全环境（HTTPS 或 localhost）；普通局域网 HTTP 页面可能只能临时游玩。
 
 ## 11 只 Clawd
@@ -103,6 +103,10 @@
 - 已有身份开局会显示连接状态，拿到凭证才显示「本局参与排名」；连接失败或登录失效仍可本地游玩。退出／切换身份不会把当前局转交给新账号。
 - 游客之后登录 L 站，成绩会合并到 L 站账号；点左上角的名字可以改名、绑定 L 站或退出。
 - 每人只计最佳成绩；游戏结束时显示你的全球排名。
+- **可靠补传**：在线成绩先在本机暂存，响应丢失也保留记录。同一凭证、同一内容重复提交只记一次；不同内容不能覆盖。结算显示提交时的最佳排名，最新名次看排行榜。
+- 请求超时为 8 秒，一次触发最多首次请求加 3 次自动重试（约 2、5、15 秒）；429 遵守服务器等待时间。预算用完后暂停自动重试，刷新不会无限重置预算，可在「待处理成绩」里手动重试。
+- 成绩只用原身份补传；游客绑定或退出前须先完成、或明确移除待处理记录。本机写入失败会提示「尚未保存，请勿刷新」。可以继续玩；若结束记录尚未安全转入队列，新局会明确标记为临时游玩。
+- 每个 API 环境最多保留 50 条持久化待处理记录，不静默淘汰旧结果。移除本机记录需确认，不会删除服务器已经接受的成绩。本地局、缺少原凭证的局、主动降级为本地的局不能补交。
 - 后端是 Cloudflare Workers + D1，自带防刷校验。部署方法见 [`leaderboard/README.md`](leaderboard/README.md)。
 - 没配置排行榜地址（[`src/config.js`](src/config.js)）时，游戏照常单机运行。
 
@@ -152,6 +156,9 @@ npm start
 │   ├── game-state.js     版本化棋盘快照、校验与恢复
 │   ├── save-store.js     存档读写与跨标签页互斥交接
 │   ├── save-flow.js      恢复选择、资格降级与保存状态
+│   ├── outbox.js         成绩持久化队列、有限重试、上传互斥
+│   ├── score-result.js   不可变结果与回执校验
+│   ├── upload-ui.js      结算上传状态与待处理入口
 │   ├── storage.js        可失败的本机设置存储
 │   ├── config.js         排行榜 API 地址
 │   └── style.css
@@ -184,7 +191,8 @@ A Suika-style ("合成大西瓜") physics merge game starring Clawd, Claude's or
 - **Phone**: drag to aim, release to drop. **Desktop**: mouse or ← / →, click or Space to drop.
 - Two Clawds of the same level merge into the next level. If the settled pile stays above the red dashed line for 3 s (a countdown is shown; Clawds still flying after a big merge don't count), the game is over.
 - Press P or use Pause/Continue. Dialogs pause the game without overriding an existing manual pause. Returning from the background or window blur requires explicit continuation; queued inputs are cleared. Restarting an unfinished game with drops requires confirmation; empty or finished games restart directly.
-- One unfinished game is autosaved per browser/API environment. Reload to resume from the last successful save. Online restoration checks the original identity and session without renewing it; explicitly choosing local play permanently removes that game's ranking eligibility. Tabs hand off exclusive ownership before continuing. Unsupported storage/locking falls back to clearly labelled temporary play; completed games are not offered for restoration. Reliable failed-score retries are not included yet.
+- One unfinished game is autosaved per browser/API environment. Reload to resume from the last successful save. Online restoration checks the original identity and session without renewing it; explicitly choosing local play permanently removes that game's ranking eligibility. Tabs hand off exclusive ownership before continuing. Unsupported storage/locking falls back to clearly labelled temporary play; completed games are not offered for restoration.
+- Online results are durably staged before unfinished saves are cleared. A bounded retry queue survives reloads and only uploads under the original identity. Requests time out after 8 seconds, with up to three automatic retries per trigger; server rate limits are respected. Identical submissions replay an immutable receipt without counting another game. Storage failures are shown explicitly, and removing a local record never deletes an accepted server score.
 - The 11 levels: Baby → Heart → Coffee → Glasses → Shades → Top hat → Skateboard → Cowboy → Ninja → Wizard → Big Clawd (crown). Every level has its own body colour; only the final Big Clawd wears the official Claude orange. A rare **Rainbow Clawd** upgrades whatever it touches.
 
 ## Mechanics

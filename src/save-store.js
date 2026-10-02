@@ -1,4 +1,5 @@
 import { SCHEMA_VERSION, RULES_VERSION, validateGameState } from './game-state.js';
+import { resultFields } from './score-result.js';
 
 export class SaveStore {
   constructor({ scope, storage, locks, channelFactory }) {
@@ -13,6 +14,11 @@ export class SaveStore {
     if(!r || r.schemaVersion!==SCHEMA_VERSION || r.rulesVersion!==RULES_VERSION || r.scope!==this.scope ||
       typeof r.roundId!=='string' || !r.roundId.length || r.roundId.length>100 ||
       !Number.isSafeInteger(r.savedAt) || r.savedAt<0)throw new Error('invalid_save');
+    if(r.terminal) {
+      resultFields(r.terminal);
+      if(r.terminal.roundId!==r.roundId)throw new Error('invalid_result');
+      return r;
+    }
     if(r.online!==null && (!r.online || typeof r.online.playerId!=='string' ||
       (r.online.sessionId!==null && typeof r.online.sessionId!=='string')))throw new Error('invalid_ticket');
     validateGameState(r.game);return r;
@@ -25,7 +31,11 @@ export class SaveStore {
     try { if(!this.storage)throw new Error();raw=this.storage.getItem(this.key); }
     catch { return { kind:'unavailable' }; }
     if(raw===null)return { kind:'empty' };
-    try { if(raw.length>2_000_000)throw new Error();return { kind:'saved',record:this.validate(JSON.parse(raw)) }; }
+    try {
+      if(raw.length>2_000_000)throw new Error();
+      const record=this.validate(JSON.parse(raw));
+      return {kind:record.terminal?'terminal':'saved',record};
+    }
     catch { return { kind:'invalid' }; }
   }
   write(record) {
@@ -38,6 +48,11 @@ export class SaveStore {
   remove() {
     if(!this.owned)throw new Error('not_owner');
     this.storage.removeItem(this.key);
+  }
+  stageResult(value) {
+    const terminal=resultFields(value);
+    this.write({schemaVersion:SCHEMA_VERSION,rulesVersion:RULES_VERSION,scope:this.scope,
+      roundId:terminal.roundId,savedAt:Date.now(),terminal});
   }
   async acquire() {
     if(this.owned)return true;

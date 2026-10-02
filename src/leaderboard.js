@@ -2,6 +2,7 @@
 // keeps a secret token in localStorage), per-game sessions and score submission.
 import { LEADERBOARD_API } from './config.js';
 import { readPreference, writePreference, getStorage } from './storage.js';
+import { receiptFields } from './score-result.js';
 
 const isLoopback = (hostname) => ['localhost', '127.0.0.1', '[::1]'].includes(hostname);
 const localDevelopment = ['http:', 'https:'].includes(location.protocol) && isLoopback(location.hostname);
@@ -36,18 +37,29 @@ export class LeaderboardError extends Error {
   }
 }
 
-async function request(path, { method = 'GET', body, token, signal } = {}) {
+async function request(path, { method = 'GET', body, token, signal, timeoutMs = 0 } = {}) {
   const headers = {};
   if (body) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = `Bearer ${token}`;
   let res;
+  let data;
+  const controller=timeoutMs && !signal ? new AbortController() : null;
+  const timer=controller?setTimeout(()=>controller.abort(),timeoutMs):null;
   try {
-    res = await fetch(apiBase + path, { method, headers, body: body && JSON.stringify(body), signal });
+    res = await fetch(apiBase + path, { method, headers, body: body && JSON.stringify(body), signal:signal||controller?.signal });
+    data = await res.json().catch(err=>{if(controller?.signal.aborted||signal?.aborted)throw err;return {};});
   } catch {
+    if(controller?.signal.aborted||signal?.aborted)throw new LeaderboardError('timeout','请求超时，尚未收到服务器确认');
     throw new LeaderboardError('offline', '连不上排行榜服务器，检查一下网络');
+  } finally {
+    clearTimeout(timer);
   }
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new LeaderboardError(data.error || 'http', data.message || `服务器错误 (${res.status})`, res.status);
+  if (!res.ok) {
+    const error=new LeaderboardError(data.error || 'http', data.message || `服务器错误 (${res.status})`, res.status);
+    const retry=res.headers.get('Retry-After');
+    error.retryAfterMs=retry ? (Number.isFinite(Number(retry)) ? Number(retry)*1000 : Math.max(0,Date.parse(retry)-Date.now())) : 0;
+    throw error;
+  }
   return data;
 }
 
@@ -64,12 +76,14 @@ function loadPlayer() {
 export const displayName = (p) => (p.tag ? `${p.name}#${p.tag}` : p.name);
 
 export const leaderboard = {
+  playerStorageKey: PLAYER_KEY,
   saveScope: `${localDevelopment ? 'dev' : 'production'}:${apiBase || 'offline'}`,
   enabled: Boolean(apiBase),
   player: loadPlayer(), // { id, name, tag, linuxdo, avatar, trustLevel, token }
   session: null, // Promise<sessionId | null> for the game in progress
   round: null, // ticket and identity captured when this round starts
   onUnauthorized: null, // called when the stored token is no longer valid
+  memoryOnly: false,
 
   get sessionStatus() {
     return this.round?.player?.token === this.player?.token && this.round?.player
@@ -78,13 +92,14 @@ export const leaderboard = {
 
   save(player, token = this.player?.token) {
     this.player = { ...player, token };
-    writePreference(PLAYER_KEY, JSON.stringify(this.player));
+    this.memoryOnly=!writePreference(PLAYER_KEY, JSON.stringify(this.player));
     return this.player;
   },
 
   forget() {
     const token=this.player?.token;
     this.player = null;
+    this.memoryOnly=false;
     this.round = null;
     this.session = null;
     try {
@@ -157,11 +172,11 @@ export const leaderboard = {
       return Promise.resolve(null);
     }
     round.status = 'pending';
-    this.session = round.promise = request('/api/session', { method: 'POST', token: round.player.token })
+    this.session = round.promise = request('/api/session', { method: 'POST', token: round.player.token,timeoutMs:8000 })
       .then((d) => {
-        round.sessionId = d.sessionId || null;
-        round.status = d.sessionId ? 'online' : 'offline';
-        return d.sessionId || null;
+        round.sessionId = typeof d.sessionId==='string'&&d.sessionId.length>0&&d.sessionId.length<=128 ? d.sessionId : null;
+        round.status = round.sessionId ? 'online' : 'offline';
+        return round.sessionId;
       })
       .catch((err) => {
         round.status = 'offline';
@@ -174,6 +189,24 @@ export const leaderboard = {
   exportSession() {
     if (!this.round?.player || this.round.player.token !== this.player?.token) return null;
     return { playerId:this.round.player.id, sessionId:this.round.sessionId || null };
+  },
+
+  uploadPlayer() { return loadPlayer() || (this.memoryOnly ? this.player : null); },
+
+  captureResultSession() {
+    const round=this.round;
+    if(!round?.player || round.player.token!==this.player?.token)return null;
+    return {playerId:round.player.id,playerName:round.player.name,sessionId:round.sessionId||null,promise:round.promise};
+  },
+
+  async sendResult(body,token) {
+    const response=await request('/api/score',{method:'POST',body,token,timeoutMs:8000});
+    try {
+      const receipt=receiptFields(response);
+      if(receipt.best<body.score || (body.score>0&&receipt.rank===null))throw new Error('invalid_receipt');
+      return receipt;
+    }
+    catch { throw new LeaderboardError('bad_response','服务器没有返回有效的成绩回执',502); }
   },
 
   async checkSavedSession(ticket) {

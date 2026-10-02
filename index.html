@@ -37,7 +37,9 @@
           <button class="player-chip hidden" id="player-chip" aria-label="我的账号"></button>
           <p class="round-status" id="round-status" role="status">本地游玩 · 成绩仅保存在本机</p>
           <button class="link-btn hidden" id="join-btn" type="button">加入排行榜 →</button>
+          <button class="link-btn hidden" id="pending-btn" type="button">待处理成绩</button>
         </div>
+        <p class="pending-note hidden" id="pending-note"></p>
         <div class="hud">
           <div class="score-box">
             <div class="score-line"><span class="score-label">分数: </span><span id="score">0</span></div>
@@ -95,10 +97,14 @@
               <div class="final-sub">最高合成: <span id="final-level">小Clawd</span></div>
               <div class="final-sub">历史最高: <span id="final-best">0</span></div>
               <div class="new-best hidden" id="new-best">✦ 新纪录 ✦</div>
-              <div class="final-rank hidden" id="final-rank"></div>
               <div class="panel-actions">
                 <button id="again" class="btn big">再来一局</button>
                 <button id="over-rank" class="btn big ghost hidden">排行榜</button>
+              </div>
+              <div class="final-rank hidden" id="final-rank"></div>
+              <div class="upload-card hidden" id="upload-state" aria-live="polite">
+                <strong id="upload-title"></strong><p id="upload-description"></p>
+                <button class="btn ghost hidden" id="upload-retry" type="button"></button>
               </div>
               <p class="local-result hidden" id="local-result"></p>
               <button class="btn ghost hidden" id="result-join" type="button">加入排行榜，下局见</button>
@@ -198,6 +204,18 @@
     </div>
 
     <div class="toast hidden" id="toast" role="status"></div>
+
+    <div class="modal hidden" id="pending-modal" role="dialog" aria-modal="true" aria-labelledby="pending-title">
+      <div class="sheet pending-sheet"><h2 id="pending-title">待处理成绩</h2><p class="sheet-sub" id="pending-context"></p>
+        <ul class="pending-list" id="pending-list"></ul><button class="btn" id="pending-close">返回游戏</button>
+      </div>
+    </div>
+    <div class="modal hidden" id="remove-result-modal" role="dialog" aria-modal="true" aria-labelledby="remove-result-title">
+      <div class="sheet"><h2 id="remove-result-title">移除这条记录？</h2><p class="sheet-sub" id="remove-result-copy"></p>
+        <button class="btn restart-choice" id="keep-result">保留记录</button>
+        <button class="btn danger-btn restart-choice" id="remove-result">移除本机记录</button>
+      </div>
+    </div>
 
     <div class="modal hidden" id="restore-modal" role="dialog" aria-modal="true" aria-labelledby="restore-title">
       <div class="sheet restore-sheet">

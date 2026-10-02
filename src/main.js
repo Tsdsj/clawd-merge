@@ -6,6 +6,8 @@ import { createGuide } from './onboarding.js';
 import { PauseState } from './pause.js';
 import { createSaveFlow } from './save-flow.js';
 import { getStorage } from './storage.js';
+import { Outbox } from './outbox.js';
+import { createUploadUI } from './upload-ui.js';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -21,7 +23,7 @@ const guide = createGuide(getStorage(), Boolean(leaderboard.player));
 let roundVersion = 0;
 const pauses = new PauseState(syncPause);
 let saves;
-let scoreSubmitting = false;
+let outbox, uploads;
 
 function updateGuide() {
   const step = guide.step;
@@ -101,7 +103,6 @@ const game = new Game(canvas, {
     if (active) featureTip('fever', '狂热模式：接下来 8 秒，合成得分翻倍！');
   },
   onGameOver({ score, best, maxLevel, isNewBest }) {
-    saves?.finish();
     pauses.clear();
     $('final').textContent = score;
     $('final-best').textContent = best;
@@ -184,6 +185,7 @@ function backgroundPause() {
 }
 
 function beginRound() {
+  uploads?.setCurrent(null);
   const version = ++roundVersion;
   leaderboard.startSession().then(() => {
     if (version === roundVersion) showPlayer();
@@ -203,8 +205,10 @@ const accountModal = $('account-modal');
 const helpModal = $('help-modal');
 const restartModal = $('restart-modal');
 const restoreModal = $('restore-modal');
+const pendingModal = $('pending-modal');
+const removeResultModal = $('remove-result-modal');
 const finalRank = $('final-rank');
-const modals = [nameModal, rankModal, accountModal, helpModal, restartModal, restoreModal];
+const modals = [nameModal, rankModal, accountModal, helpModal, restartModal, restoreModal,pendingModal,removeResultModal];
 const modalOpen = () => document.body.classList.contains('modal-open');
 const modalFocus = new WeakMap();
 
@@ -273,6 +277,7 @@ function nameEl(p, className) {
 }
 
 function showPlayer() {
+  outbox?.wakeIdentity();
   const { player, enabled } = leaderboard;
   const chip = $('player-chip');
   chip.replaceChildren();
@@ -293,7 +298,7 @@ function showPlayer() {
 }
 
 function showLocalResult() {
-  const local = !['pending', 'online'].includes(leaderboard.sessionStatus);
+  const local = !uploads?.hasCurrent() && !['pending', 'online'].includes(leaderboard.sessionStatus);
   $('local-result').classList.toggle('hidden', !local);
   $('local-result').textContent = game.persistenceWarning
     ? '本局为本地游玩，不参与排名；浏览器保存失败，请勿关闭页面。'
@@ -353,6 +358,12 @@ $('name-offline').addEventListener('click', () => {
 
 // Leaves the page for LINUX DO; comes back with #login=<code>.
 async function goLinuxdo(button, errorEl) {
+  const unsettled=leaderboard.player&&!leaderboard.player.linuxdo&&uploads.hasUnresolved(leaderboard.player.id);
+  const unsaved=outbox.list().some(e=>!e.durable&&!e.journaled&&e.state!=='accepted');
+  if(unsettled||unsaved) {
+    uploads.open(unsaved?'有成绩尚未保存，请先重试保存或明确移除，再离开页面登录。':'绑定前还有游客成绩待处理，请先补传或明确移除记录。');
+    return;
+  }
   if (game.drops > 0 && !game.over && !confirm('登录将离开当前页面，本局进度不会保存。现在去登录吗？')) return;
   button.disabled = true;
   errorEl.textContent = '';
@@ -404,6 +415,9 @@ $('rename-form').addEventListener('submit', async (e) => {
 
 $('acc-logout').addEventListener('click', async () => {
   const guest = !leaderboard.player?.linuxdo;
+  if(guest && uploads.hasUnresolved(leaderboard.player?.id)) {
+    uploads.open('退出游客身份前，请先补传或明确移除待处理成绩。');return;
+  }
   if (guest && !confirm('游客身份只存在这个浏览器里，退出后这个名字和成绩就找不回来了。确定退出吗？')) return;
   const pending = leaderboard.logout();
   showModal(accountModal, false);
@@ -419,28 +433,35 @@ leaderboard.onUnauthorized = () => {
 };
 
 async function submitScore(result) {
-  const version = roundVersion;
+  const version=roundVersion;
   finalRank.classList.add('hidden');
   showLocalResult();
-  if (!saves?.canSubmit || !leaderboard.enabled || !['pending', 'online'].includes(leaderboard.sessionStatus)) return;
+  if (!saves?.canSubmit || !leaderboard.enabled || !['pending', 'online'].includes(leaderboard.sessionStatus)) {
+    saves?.finish();return;
+  }
   if (result.score === 0) {
+    saves.finish();
     finalRank.className = 'final-rank';
     finalRank.textContent = '本局未得分，再试一次吧。';
     return;
   }
-  finalRank.className = 'final-rank';
-  finalRank.textContent = '正在上传成绩…';
-  scoreSubmitting = true;
+  const session=leaderboard.captureResultSession();
+  if(!session) { saves.finish();return; }
+  const payload={...result,roundId:saves.roundId,playerId:session.playerId,playerName:session.playerName,sessionId:session.sessionId};
   try {
-    const { rank, improved } = await leaderboard.submit(result);
-    if (version !== roundVersion) return;
-    finalRank.textContent = improved ? `个人最佳! 全球排名 #${rank}` : `你的最佳成绩排名 #${rank}`;
+    const journaled=saves.stageResult(payload);
+    const entry=outbox.enqueue(payload,{journaled});
+    uploads.setCurrent(entry.key);
+    if(entry.durable)saves.clearFinished(payload.roundId);
+    void outbox.kick();
+    if(!entry.sessionId) {
+      const id=await session.promise;
+      outbox.setTicket(entry.key,id||null);
+    }
   } catch (err) {
-    if (version !== roundVersion) return;
+    if(version!==roundVersion)return;
     finalRank.className = 'final-rank error';
-    finalRank.textContent = err.message;
-  } finally {
-    scoreSubmitting = false;
+    finalRank.textContent = '本局结果未能安全加入待处理记录，请勿刷新页面。';
   }
 }
 
@@ -699,8 +720,21 @@ new ResizeObserver(layout).observe(stage);
 
 layout();
 updateGuide();
+outbox=new Outbox({scope:leaderboard.saveScope,storage:getStorage(),locks:navigator.locks,
+  isOnline:()=>navigator.onLine!==false,
+  getPlayer:()=>leaderboard.uploadPlayer(),send:(body,token)=>leaderboard.sendResult(body,token),
+  onDurable:entry=>{saves?.clearFinished(entry.roundId);},
+  onClear:entry=>!entry.roundId||Boolean(saves?.clearFinished(entry.roundId)),
+  onChange:entry=>{
+    if(entry&&!entry.durable&&entry.journaled)entry.journaled=Boolean(saves?.updateJournal(entry));
+    uploads?.render();
+  },
+});
 saves = createSaveFlow({
-  game,leaderboard,pauses,showModal,onNew:resetRound,isSubmitting:()=>scoreSubmitting,
+  game,leaderboard,pauses,showModal,onNew:resetRound,isSubmitting:()=>false,
+  findResult:id=>outbox.findRound(id),
+  recoverResult:entry=>{const result=outbox.enqueue(entry,{journaled:true});void outbox.kick();return result;},
+  hasUnsafeResults:()=>outbox.list().some(e=>!e.durable&&!['accepted','removed'].includes(e.state)),
   onRestored() {
     roundVersion++;
     clearTimeout(overTimer);overlay.classList.add('hidden');finalRank.classList.add('hidden');
@@ -711,11 +745,22 @@ saves = createSaveFlow({
     board.classList.toggle('fever',game.fever);
     guide.dismiss();updateGuide();showPlayer();board.focus({preventScroll:true});
   },
-  onLost() { roundVersion++;showPlayer(); },
+  onLost() { roundVersion++;uploads?.setCurrent(null);showPlayer(); },
 });
+uploads=createUploadUI({outbox,showModal,isGameOver:()=>game.over,openRanks,notify:toast,
+  closeOthers:()=>{for(const modal of modals)if(!modal.classList.contains('hidden'))showModal(modal,false);},
+  openAccount:()=>{if(leaderboard.player)openAccount();else askName();},
+});
+window.addEventListener('storage',event=>{
+  outbox.observe(event.key,event.newValue);
+  if(event.key===leaderboard.playerStorageKey)outbox.wakeIdentity();
+});
+window.addEventListener('online',()=>outbox.wakeOnline());
+window.addEventListener('pagehide',()=>outbox.stop());
+window.addEventListener('pageshow',event=>{if(event.persisted)outbox.start();});
 requestAnimationFrame(frame);
 initAccount();
-void saves.initialize();
+void saves.initialize().then(()=>outbox.start());
 
 async function initAccount() {
   showPlayer();

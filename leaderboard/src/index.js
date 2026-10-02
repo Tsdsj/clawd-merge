@@ -82,7 +82,7 @@ export default {
           ? { error: err.code, message: err.message }
           : { error: 'internal', message: '服务器开小差了，请稍后再试' };
       if (!(err instanceof ApiError)) console.error(err);
-      return json(body, status, cors);
+      return json(body, status, { ...cors, ...(err.retryAfter ? { 'Retry-After':String(err.retryAfter) } : {}) });
     }
   },
 };
@@ -327,6 +327,7 @@ async function upsertLinuxdoPlayer(db, user, mergeGuestId) {
     const better = guest.best_score > (existing?.best_score ?? 0);
     await db.batch([
       db.prepare('UPDATE scores SET player_id = ? WHERE player_id = ?').bind(id, guest.id),
+      db.prepare('UPDATE score_receipts SET player_id = ? WHERE player_id = ?').bind(id, guest.id),
       db.prepare('UPDATE tokens SET player_id = ? WHERE player_id = ?').bind(id, guest.id),
       db.prepare('UPDATE sessions SET player_id = ? WHERE player_id = ?').bind(id, guest.id),
       better
@@ -389,51 +390,71 @@ async function checkSession(request, env, url) {
 async function submitScore(request, env) {
   const player = await authenticate(request, env);
   await rateLimit(env.DB, `score:${player.id}`, LIMITS.score, '提交太频繁了，请稍后再试');
-
   const body = await readJson(request);
   const score = int(body.score, 0, 10_000_000, 'score');
   const drops = int(body.drops, 1, MAX_DROPS, 'drops');
   const maxLevel = int(body.maxLevel, 1, MAX_LEVEL, 'maxLevel');
   const sessionId = typeof body.sessionId === 'string' ? body.sessionId : '';
+  const readReceipt = () => env.DB.prepare('SELECT * FROM score_receipts WHERE session_id = ? AND player_id = ?')
+    .bind(sessionId, player.id).first();
+  const respond = (receipt) => {
+    if (receipt.score !== score || receipt.drops !== drops || receipt.max_level !== maxLevel) {
+      throw new ApiError(409, 'score_conflict', '这局已经接受了不同的成绩，不能覆盖');
+    }
+    return json({ improved: Boolean(receipt.improved), best: receipt.best, rank: receipt.rank });
+  };
+  // A replay is valid even after session cleanup/expiry. Never count it again.
+  const previous = await readReceipt();
+  if (previous) return respond(previous);
 
   const now = Date.now();
-  // Consume the session atomically so it can't be submitted twice.
-  const session = await env.DB.prepare(
-    'UPDATE sessions SET used = 1 WHERE id = ? AND player_id = ? AND used = 0 RETURNING started_at',
-  )
-    .bind(sessionId, player.id)
-    .first();
-  if (!session) throw new ApiError(400, 'bad_session', '这局的成绩凭证无效，请重新开一局');
+  const session = await env.DB.prepare('SELECT started_at, used FROM sessions WHERE id = ? AND player_id = ?')
+    .bind(sessionId, player.id).first();
+  if (!session || session.used) {
+    // Another request may have committed between the two reads.
+    const raced = await readReceipt();
+    if (raced) return respond(raced);
+    throw new ApiError(400, 'bad_session', '这局的成绩凭证无效，请重新开一局');
+  }
   const elapsed = now - session.started_at;
   if (elapsed > SESSION_TTL_MS) throw new ApiError(400, 'session_expired', '这局太久了，成绩凭证已过期');
-  if (elapsed < drops * DROP_COOLDOWN_MS * 0.9 - 3000) {
-    throw new ApiError(422, 'too_fast', '成绩异常：投放速度超出了游戏允许的范围');
-  }
-  if (score > drops * MAX_POINTS_PER_DROP + 5000) {
-    throw new ApiError(422, 'implausible', '成绩异常：分数和投放次数对不上');
-  }
+  const minimumDuration = drops * DROP_COOLDOWN_MS * 0.9 - 3000;
+  if (elapsed < minimumDuration) throw new ApiError(422, 'too_fast', '成绩异常：投放速度超出了游戏允许的范围');
+  if (score > drops * MAX_POINTS_PER_DROP + 5000) throw new ApiError(422, 'implausible', '成绩异常：分数和投放次数对不上');
 
-  const statements = [
-    env.DB.prepare(
-      'INSERT INTO scores (player_id, score, max_level, drops, duration_ms, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-    ).bind(player.id, score, maxLevel, drops, elapsed, now),
-    env.DB.prepare('UPDATE players SET games = games + 1 WHERE id = ?').bind(player.id),
-    // Authentication read a snapshot: another device may have improved it since.
-    // Compare against the stored value in the transaction, preserving ties.
-    env.DB.prepare(
-      'UPDATE players SET best_score = ?, best_level = ?, best_at = ? WHERE id = ? AND best_score < ?',
-    ).bind(score, maxLevel, now, player.id, score),
-  ];
-  const results = await env.DB.batch(statements);
-  const improved = results[2].meta.changes > 0;
-
-  // Return the current authoritative best, including when this score lost a race.
-  const best = await env.DB.prepare('SELECT best_score, best_at FROM players WHERE id = ?').bind(player.id).first();
-  return json({
-    improved,
-    best: best.best_score,
-    rank: best.best_score > 0 ? await rankOf(env.DB, best) : null,
-  });
+  // Only the request that inserted this attempt can perform dependent writes.
+  // Unique session_id plus a single D1 transaction handles concurrent retries.
+  const attempt = crypto.randomUUID();
+  await env.DB.batch([
+    env.DB.prepare(`INSERT INTO score_receipts
+      (session_id, player_id, attempt_id, score, drops, max_level, duration_ms, accepted_at, improved)
+      SELECT s.id, p.id, ?, ?, ?, ?, ? - s.started_at, ?, CASE WHEN ? > p.best_score THEN 1 ELSE 0 END
+      FROM sessions s JOIN players p ON p.id = s.player_id
+      WHERE s.id = ? AND p.id = ? AND s.used = 0 AND s.started_at >= ? AND s.started_at <= ?
+      ON CONFLICT(session_id) DO NOTHING`)
+      .bind(attempt, score, drops, maxLevel, now, now, score, sessionId, player.id, now - SESSION_TTL_MS, now - minimumDuration),
+    env.DB.prepare(`UPDATE sessions SET used = 1 WHERE id = ?
+      AND EXISTS (SELECT 1 FROM score_receipts WHERE attempt_id = ?)`)
+      .bind(sessionId, attempt),
+    env.DB.prepare(`INSERT INTO scores (player_id, score, max_level, drops, duration_ms, created_at)
+      SELECT player_id, score, max_level, drops, duration_ms, accepted_at FROM score_receipts WHERE attempt_id = ?`)
+      .bind(attempt),
+    env.DB.prepare(`UPDATE players SET games = games + 1 WHERE id = ?
+      AND EXISTS (SELECT 1 FROM score_receipts WHERE attempt_id = ?)`)
+      .bind(player.id, attempt),
+    env.DB.prepare(`UPDATE players SET best_score = ?, best_level = ?, best_at = ? WHERE id = ? AND best_score < ?
+      AND EXISTS (SELECT 1 FROM score_receipts WHERE attempt_id = ?)`)
+      .bind(score, maxLevel, now, player.id, score, attempt),
+    env.DB.prepare(`UPDATE score_receipts SET
+      best = (SELECT best_score FROM players WHERE id = score_receipts.player_id),
+      rank = (SELECT CASE WHEN p.best_score > 0 THEN 1 +
+        (SELECT COUNT(*) FROM players q WHERE q.best_score > p.best_score OR (q.best_score = p.best_score AND q.best_at < p.best_at))
+        ELSE NULL END FROM players p WHERE p.id = score_receipts.player_id)
+      WHERE attempt_id = ?`).bind(attempt),
+  ]);
+  const accepted = await readReceipt();
+  if (!accepted) throw new ApiError(400, 'bad_session', '这局的成绩凭证无效，请重新开一局');
+  return respond(accepted);
 }
 
 async function leaderboard(url, env) {
@@ -510,7 +531,11 @@ async function rateLimit(db, key, { limit, windowMs }, message) {
       .run();
     return;
   }
-  if (row.count >= limit) throw new ApiError(429, 'rate_limited', message);
+  if (row.count >= limit) {
+    const error=new ApiError(429, 'rate_limited', message);
+    error.retryAfter=Math.max(1,Math.ceil((row.window_start+windowMs-now)/1000));
+    throw error;
+  }
   await db.prepare('UPDATE rate_limits SET count = count + 1 WHERE key = ?').bind(key).run();
 }
 
@@ -605,6 +630,7 @@ function corsHeaders(request, env) {
   const headers = {
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Expose-Headers': 'Retry-After',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   };

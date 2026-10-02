@@ -251,3 +251,12 @@ test('a stale tab cannot overwrite or remove a newer identity saved by another t
   leaderboard.forget();
   assert.equal(storage.get(legacyKey),newer);
 });
+
+test('upload responses must contain a consistent receipt and expose retry-after',async(t)=>{
+  const {leaderboard}=await client(t,'http://localhost:5173/');
+  const body={sessionId:'ticket',score:30,drops:1,maxLevel:3};
+  t.mock.method(globalThis,'fetch',async()=>Response.json({improved:true,best:10,rank:1}));
+  await assert.rejects(leaderboard.sendResult(body,'test-token'),{code:'bad_response',status:502});
+  t.mock.method(globalThis,'fetch',async()=>Response.json({error:'rate_limited',message:'wait'},{status:429,headers:{'Retry-After':'60'}}));
+  await assert.rejects(leaderboard.sendResult(body,'test-token'),err=>err.status===429&&err.retryAfterMs===60000);
+});

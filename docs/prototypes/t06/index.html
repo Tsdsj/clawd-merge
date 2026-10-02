@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>T06 · 成绩上传与补传原型</title>
+  <link rel="stylesheet" href="../../../src/style.css">
+  <style>
+    :root { --review-height:90px; }
+    .review-bar { padding:12px 16px; background:#111523; border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:8px 18px; font-size:12px; }
+    .review-bar p { color:#b5aec5; line-height:1.5; }
+    .review-bar label { display:flex; align-items:center; gap:10px; }
+    select { padding:8px; min-height:40px; max-width:210px; border:1px solid #72677e; border-radius:6px; background:#25283f; color:var(--text); font:inherit; }
+    .app { height:calc(100dvh - var(--review-height)); }
+    .board { touch-action:pan-y; }
+    .board canvas { width:100%;height:100%; }
+    .result-cover { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; padding:12px; background:#101526de; }
+    .result-panel { width:100%;max-height:100%;overflow:auto;overscroll-behavior:contain;text-align:center;padding:14px 4px; }
+    .result-panel h2 { font-size:25px;color:#e9a789; }
+    .result-points { font-size:38px;font-weight:800;margin:10px 0;color:#f3c7af; }
+    .caption { font-size:11px;color:#b5aec5;line-height:1.6; }
+    .result-panel>.btn { width:100%;min-height:44px;margin:16px 0 12px; }
+    .upload-card { padding:13px 12px;background:#24283d;border:1px solid #55516b;border-radius:7px;text-align:left; }
+    .upload-card strong { display:block;font-size:14px; }
+    .upload-card p { margin-top:5px;font-size:12px;line-height:1.7;color:#c3bbcf; }
+    .upload-card .btn { margin-top:10px;width:100%;min-height:38px;font-size:13px; }
+    .upload-card[data-tone="success"] { border-color:#538875; }
+    .upload-card[data-tone="success"] strong { color:#9cd9b9; }
+    .upload-card[data-tone="warning"] { border-color:#917250; }
+    .upload-card[data-tone="warning"] strong { color:#f0cc9e; }
+    #pending-btn { font-size:12px;color:#efad90;min-height:34px; }
+    #carry-note { font-size:12px;line-height:1.7;padding:8px 12px;color:#d7cbbe;background:#24283d;border:1px solid #514b59;border-radius:6px; }
+    dialog { margin:auto;border:0;color:var(--text); }
+    dialog.sheet { width:min(370px,calc(100% - 32px));max-height:calc(100dvh - 32px); }
+    dialog:not([open]) { display:none; }
+    dialog::backdrop { background:#080914bd; }
+    .queue-list { list-style:none;width:100%;text-align:left; }
+    .queue-list li { padding:12px 0;border-bottom:1px solid var(--line); }
+    .queue-list b { font-size:19px; }
+    .queue-list p { font-size:12px;color:#b5aec5;line-height:1.7; }
+    .queue-list button { min-height:38px;margin-top:8px; }
+    .sheet .btn { min-height:42px; }
+    @media(max-width:480px) { .review-bar { justify-content:flex-start;padding:10px 12px; } .review-bar label { width:100%;justify-content:space-between; } }
+    @media(orientation:landscape) and (max-height:540px) { .app .legend { display:none; } .review-bar p { display:none; } }
+  </style>
+</head>
+<body>
+  <header class="review-bar" id="review-bar">
+    <div><strong>T06 · 成绩上传与补传</strong><p>独立交互原型 · 不保存、不上传真实成绩</p></div>
+    <label>查看状态<select id="scenario" aria-label="选择上传状态">
+      <option value="uploading">正在上传</option><option value="pending">断网，已暂存</option>
+      <option value="retry">自动重试暂停</option><option value="success">上传成功</option>
+      <option value="rejected">凭证过期／规则拒绝</option><option value="identity">原身份待处理</option>
+      <option value="storage">本机暂存失败</option><option value="local">本地局，不参与上传</option>
+    </select></label>
+  </header>
+  <main class="app">
+    <header class="top">
+      <div class="title-row"><h1 class="title">合成大Clawd</h1><button class="icon-btn rank-btn" id="rank" aria-label="排行榜演示">榜</button></div>
+      <div class="player-row"><p class="round-status" id="player-label">L · fucdd · 示例身份</p><button class="link-btn" id="pending-btn">待处理成绩 1</button></div>
+      <div class="hud"><div class="score-box"><div class="score-line">分数: <span id="score">9764</span></div><div class="best">本机最高 9764</div></div><div class="next-box"><span>下一个</span><canvas id="next"></canvas></div><div class="actions"><button class="icon-btn" disabled aria-label="钳子演示">钳</button><button class="icon-btn" disabled aria-label="音效演示">音</button><button class="btn ghost" id="back-result">查看上一局</button></div></div>
+      <p class="hidden" id="carry-note"></p>
+    </header>
+    <section class="stage" id="stage"><div class="board" id="board">
+      <canvas id="scene" width="400" height="640"></canvas>
+      <div class="result-cover" id="result"><div class="result-panel">
+        <h2>游戏结束！</h2><div class="result-points">9,764</div><p class="caption">最高合成：魔法Clawd · 本机新纪录</p>
+        <button class="btn" id="again">再来一局</button>
+        <div class="upload-card" id="upload-card"><strong id="upload-title"></strong><p id="upload-description"></p><button class="btn ghost hidden" id="upload-action"></button></div>
+        <p class="caption" id="footnote" style="margin-top:10px">上传状态独立保存，不影响下一局。</p>
+      </div></div>
+    </div></section>
+    <p class="caption">本原型使用示例分数与榜单；按钮仅演示状态变化。</p>
+  </main>
+  <dialog class="sheet" id="queue" aria-labelledby="queue-title"><h2 id="queue-title">待处理成绩</h2><p class="sheet-sub">成绩跟随原对局和原身份，不会转交给当前账号。</p><ul class="queue-list" id="queue-list"></ul><button class="btn" id="queue-close">返回游戏</button></dialog>
+  <dialog class="sheet" id="info" aria-labelledby="info-title"><h2 id="info-title">排行榜</h2><p class="sheet-sub" id="info-copy"></p><button class="btn" id="info-close">知道了</button><button class="btn danger-btn hidden" id="remove-confirm">移除本机记录</button></dialog>
+  <script type="module">
+    import {drawCrabIcon} from '../../../src/crabs.js';
+    const $=id=>document.getElementById(id);
+    let state='uploading',playing=false,removed=false;
+    const states={
+      uploading:{title:'正在上传成绩…',description:'本局结果已暂存。你可以直接开始下一局。',tone:'normal'},
+      pending:{title:'已暂存，等待联网',description:'本局结果已保存在这个浏览器。联网后会尝试补传，也可手动重试。',action:'立即重试',tone:'warning'},
+      retry:{title:'已暂存，自动重试已暂停',description:'连续尝试后仍未确认成功。记录保留，稍后可手动重试。',action:'立即重试',tone:'warning'},
+      success:{title:'已上传 · 个人新纪录',description:'提交时个人最佳排名 #12。最新排名可在排行榜查看。',action:'查看排行榜',tone:'success'},
+      rejected:{title:'本局无法上榜',description:'示例：原成绩凭证已过期。已停止重试，本机最高分保留。',action:'查看处理记录',tone:'warning'},
+      identity:{title:'等待原身份处理',description:'这条成绩属于之前的身份。不会以当前账号重新上传。',action:'查看处理记录',tone:'warning'},
+      storage:{title:'尚未保存，请勿刷新',description:'本机暂存失败，目前只保留在这一页。关闭或刷新可能丢失这条成绩。',action:'重试保存并上传',tone:'warning'},
+      local:{title:'本局为本地游玩',description:'没有原在线凭证，不创建补传记录，也不能通过稍后登录补交。',tone:'normal'}
+    };
+    function showInfo(title,text){$('remove-confirm').classList.add('hidden');$('info-close').textContent='知道了';$('info-title').textContent=title;$('info-copy').textContent=text;$('info').showModal();}
+    function draw(){const ctx=$('scene').getContext('2d');ctx.fillStyle='#151a2e';ctx.fillRect(0,0,400,640);if(!playing)for(const [l,x,y,w,h] of [[10,150,540,190,146],[6,305,575,84,66],[4,290,509,74,54]]){const c=document.createElement('canvas');drawCrabIcon(c,l,w,h,1);ctx.drawImage(c,x-w/2,y-h/2);}const c=document.createElement('canvas');drawCrabIcon(c,1,40,28,1);ctx.drawImage(c,180,50);}
+    function render(){const s=states[state];$('player-label').textContent=state==='identity'?'当前账号：另一身份（示例）':'L · fucdd · 示例身份';$('upload-title').textContent=s.title;$('upload-description').textContent=s.description;$('upload-card').dataset.tone=s.tone;$('upload-action').textContent=s.action||'';$('upload-action').classList.toggle('hidden',!s.action);$('result').classList.toggle('hidden',playing);$('score').textContent=playing?'0':'9764';const pending=!removed&&!['success','local'].includes(state);$('pending-btn').classList.toggle('hidden',!pending);$('pending-btn').textContent=state==='storage'?'待处理 1 · 未保存':'待处理成绩 1';$('carry-note').classList.toggle('hidden',!playing||!pending);$('carry-note').textContent=state==='storage'?'上一局成绩尚未写入本机，请勿刷新；可在“待处理”中重试。':state==='rejected'?'上一局有一条无法上传的处理记录，详情见“待处理”。':'上一局 9764 分仍待处理，不影响当前这局。';$('footnote').textContent=state==='storage'?'暂存失败时，不能保证刷新后补传。':'上传状态独立于当前棋盘；开始新局不会覆盖旧结果。';draw();}
+    function queue(){const s=states[state];$('queue-list').replaceChildren();if(removed){const p=document.createElement('li');p.textContent='没有待处理成绩';$('queue-list').append(p);$('queue').showModal();return;}const li=document.createElement('li');const score=document.createElement('b');score.textContent='9,764';const meta=document.createElement('p');meta.textContent='原身份：fucdd · 经典模式 · 示例对局';const status=document.createElement('p');status.textContent=s.title;li.append(score,meta,status);if(['pending','retry','storage'].includes(state)){const btn=document.createElement('button');btn.className='btn ghost';btn.textContent=state==='storage'?'重试保存并上传':'重试这条成绩';btn.onclick=()=>{state='success';$('scenario').value=state;render();$('queue').close();showInfo('原型演示：已上传','旧结果已确认，当前棋盘和分数保持不变。');};li.append(btn);}if(state==='identity'){const p=document.createElement('p');p.textContent='请先切回原身份。当前账号不能认领这条成绩。';li.append(p);}if(state==='rejected'){const p=document.createElement('p');p.textContent='凭证过期；该条记录不会继续自动重试。';li.append(p);}if(state!=='uploading'){const remove=document.createElement('button');remove.className='link-btn';remove.textContent='移除本机记录';remove.onclick=()=>{$('queue').close();showInfo('移除这条记录？','移除后本机不再补传这条 9764 分成绩。不删除本机最高分或服务端已接受的成绩。');$('info-close').textContent='保留记录';$('remove-confirm').classList.remove('hidden');$('info-close').focus();};li.append(remove);}$('queue-list').append(li);$('queue').showModal();}
+    $('scenario').onchange=()=>{state=$('scenario').value;playing=false;removed=false;render();};
+    $('again').onclick=()=>{playing=true;render();};$('back-result').onclick=()=>{playing=false;render();};
+    $('pending-btn').onclick=queue;$('queue-close').onclick=()=>$('queue').close();
+    $('upload-action').onclick=()=>{if(state==='success')showInfo('排行榜','原型示例：提交时排名 #12；正式界面查看现有实时榜单。');else if(['rejected','identity'].includes(state))queue();else{state='success';$('scenario').value=state;render();}};
+    $('rank').onclick=()=>showInfo('排行榜','本原型不请求排行榜，正式实现复用已有榜单。');$('info-close').onclick=()=>$('info').close();$('remove-confirm').onclick=()=>{removed=true;$('info').close();render();};
+    function layout(){const h=$('review-bar').getBoundingClientRect().height;document.documentElement.style.setProperty('--review-height',`${h}px`);const r=$('stage').getBoundingClientRect();const w=Math.floor(Math.min(r.width-8,(r.height-8)*400/640));$('board').style.width=`${w}px`;$('board').style.height=`${w*640/400}px`;}
+    drawCrabIcon($('next'),3,34,26,2);new ResizeObserver(layout).observe($('review-bar'));new ResizeObserver(layout).observe(document.querySelector('.top'));window.addEventListener('resize',layout);render();layout();
+  </script>
+</body>
+</html>

@@ -218,17 +218,75 @@ for (const scenario of [
   });
 }
 
-test('sessions are single-use and required', async () => {
+test('sessions require ownership and identical retries replay once', async () => {
   const a = await register('玩家一');
   const { data } = await call('POST', '/api/session', { token: a.token });
   const body = { sessionId: data.sessionId, score: 10, drops: 1, maxLevel: 2 };
   assert.equal((await call('POST', '/api/score', { token: a.token, body })).status, 200);
-  assert.equal((await call('POST', '/api/score', { token: a.token, body })).status, 400);
+  assert.equal((await call('POST', '/api/score', { token: a.token, body })).status, 200);
+  assert.equal((await call('POST', '/api/score', { token:a.token,body:{...body,score:11} })).status,409);
   const fake = { ...body, sessionId: 'made-up' };
   assert.equal((await call('POST', '/api/score', { token: a.token, body: fake })).data.error, 'bad_session');
   const b = await register('玩家二');
   const s2 = (await call('POST', '/api/session', { token: b.token })).data.sessionId;
   assert.equal((await call('POST', '/api/score', { token: a.token, body: { ...body, sessionId: s2 } })).status, 400);
+});
+
+test('accepted receipt survives response loss, session cleanup and expiry', async (t) => {
+  const a=await register('补传验证');
+  const sessionId=(await call('POST','/api/session',{token:a.token})).data.sessionId;
+  const body={sessionId,score:30,drops:1,maxLevel:3};
+  const first=await call('POST','/api/score',{token:a.token,body});
+  assert.equal(first.status,200);
+  await play(a.token,{score:60,drops:1}); // improves best and cleans used sessions
+  const now=Date.now();t.mock.method(Date,'now',()=>now+4*3600_000);
+  const replay=await call('POST','/api/score',{token:a.token,body});
+  assert.equal(replay.status,200);assert.deepEqual(replay.data,first.data);
+  assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM scores').get().n,2);
+  assert.equal((await call('GET','/api/me',{token:a.token})).data.games,2);
+});
+
+test('simultaneous identical submissions accept exactly once', async () => {
+  const a=await register('并发补传');
+  const sessionId=(await call('POST','/api/session',{token:a.token})).data.sessionId;
+  const body={sessionId,score:30,drops:1,maxLevel:3};
+  const results=await Promise.all(Array.from({length:5},()=>call('POST','/api/score',{token:a.token,body})));
+  for(const r of results){assert.equal(r.status,200);assert.deepEqual(r.data,results[0].data);}
+  assert.equal(env.DB.raw.prepare('SELECT COUNT(*) AS n FROM scores').get().n,1);
+  assert.equal((await call('GET','/api/me',{token:a.token})).data.games,1);
+});
+
+test('a failed score transaction rolls back ticket consumption and can be retried', async (t) => {
+  t.mock.method(console,'error',()=>{});
+  const a=await register('回滚验证');
+  const sessionId=(await call('POST','/api/session',{token:a.token})).data.sessionId;
+  const body={sessionId,score:30,drops:1,maxLevel:3};
+  env.DB.raw.exec("CREATE TRIGGER reject_score BEFORE INSERT ON scores BEGIN SELECT RAISE(ABORT, 'test failure'); END");
+  assert.equal((await call('POST','/api/score',{token:a.token,body})).status,500);
+  assert.equal(env.DB.raw.prepare('SELECT used FROM sessions WHERE id = ?').get(sessionId).used,0);
+  env.DB.raw.exec('DROP TRIGGER reject_score');
+  assert.equal((await call('POST','/api/score',{token:a.token,body})).status,200);
+  assert.equal((await call('GET','/api/me',{token:a.token})).data.games,1);
+});
+
+test('rejected rules do not consume an otherwise valid session', async () => {
+  const a=await register('校验重试');
+  const sessionId=(await call('POST','/api/session',{token:a.token})).data.sessionId;
+  assert.equal((await call('POST','/api/score',{token:a.token,body:{sessionId,score:100000,drops:1,maxLevel:3}})).status,422);
+  assert.equal(env.DB.raw.prepare('SELECT used FROM sessions WHERE id = ?').get(sessionId).used,0);
+});
+
+test('accepted receipts follow an explicitly merged guest identity', async () => {
+  const user={id:785,username:'receipt_owner'};
+  await linuxdoLogin(user);
+  const guest=await register('回执游客');
+  const sessionId=(await call('POST','/api/session',{token:guest.token})).data.sessionId;
+  const body={sessionId,score:30,drops:1,maxLevel:3};
+  const first=await call('POST','/api/score',{token:guest.token,body});
+  const account=await linuxdoLogin(user,{guestToken:guest.token});
+  const replay=await call('POST','/api/score',{token:account.token,body});
+  assert.equal(replay.status,200);assert.deepEqual(replay.data,first.data);
+  assert.equal((await call('GET','/api/me',{token:account.token})).data.games,1);
 });
 
 test('restoring checks ticket ownership, expiry and usage without consuming or extending it', async () => {

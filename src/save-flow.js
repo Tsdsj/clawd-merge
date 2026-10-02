@@ -3,7 +3,8 @@ import { getStorage } from './storage.js';
 import { defOf, drawCrabIcon } from './crabs.js';
 
 // Coordinates ownership, recovery choices and persistence. Physics stays in Game.
-export function createSaveFlow({ game, leaderboard, pauses, showModal, onNew, onRestored, onLost, isSubmitting }) {
+export function createSaveFlow({ game, leaderboard, pauses, showModal, onNew, onRestored, onLost, isSubmitting,
+  findResult=()=>null,recoverResult=()=>null,hasUnsafeResults=()=>false }) {
   const $ = id => document.getElementById(id);
   const modal = $('restore-modal');
   const store = new SaveStore({
@@ -13,6 +14,7 @@ export function createSaveFlow({ game, leaderboard, pauses, showModal, onNew, on
   let state='initializing', record=null, roundId=null, temporary=false, failure=false;
   let operation=0, lastSave=0, offer='saved';
   let initialization=null;
+  let protectedResult=null,temporaryForResult=false;
 
   function status(text, warning=false) {
     $('save-status').setAttribute('aria-live',warning?'polite':'off');
@@ -65,7 +67,10 @@ export function createSaveFlow({ game, leaderboard, pauses, showModal, onNew, on
   function flush() {
     if(state!=='active' || temporary || !store.owned) return false;
     try {
-      if(game.over) { store.remove();record=null;failure=false;status('本局已结束，未完成存档已清理');return true; }
+      if(game.over) {
+        if(protectedResult)return store.read().kind==='terminal';
+        store.remove();record=null;failure=false;status('本局已结束，未完成存档已清理');return true;
+      }
       if(!game.drops)return true;
       record=store.record(roundId,game.snapshot(),leaderboard.exportSession());
       store.write(record); lastSave=performance.now(); failure=false;
@@ -85,6 +90,12 @@ export function createSaveFlow({ game, leaderboard, pauses, showModal, onNew, on
   }
   function newGame() {
     if(state==='busy' || (!store.owned && !temporary)) { display('busy');return false; }
+    if(hasUnsafeResults()) {
+      temporaryForResult=true;activateNew(true);
+      status('上一局结果尚未进入队列 · 新局暂不自动保存，请勿刷新',true);
+      return true;
+    }
+    if(temporaryForResult && store.owned) { temporary=false;temporaryForResult=false; }
     if(!temporary) {
       try { store.remove(); } catch { display('unavailable','无法替换旧存档。可以重试，或开始不覆盖旧档的临时新局。');return false; }
     }
@@ -94,6 +105,20 @@ export function createSaveFlow({ game, leaderboard, pauses, showModal, onNew, on
   function inspect() {
     const result=store.read();
     if(result.kind==='empty') { activateNew();return; }
+    if(result.kind==='terminal' || (result.kind==='saved' && findResult(result.record.roundId))) {
+      try {
+        const pending=result.kind==='terminal'?recoverResult(result.record.terminal):findResult(result.record.roundId);
+        if(!pending || pending.state==='corrupt')throw new Error('invalid_result');
+        const safe=pending.durable || pending.state==='accepted' || pending.state==='removed';
+        if(safe) { store.remove();protectedResult=null; }
+        else { protectedResult=result.record.roundId;temporaryForResult=true; }
+        activateNew(!safe);
+        status(safe?'上一局成绩已转入待处理记录':'上一局结果已保留 · 新局暂不自动保存',!safe);
+      } catch {
+        state='invalid';record=null;freeze();display('invalid','上一局结果需要处理，原记录未改动。请先查看待处理成绩。');
+      }
+      return;
+    }
     state=result.kind;record=result.record || null;freeze();
     status(result.kind==='saved'?'发现未完成对局，选择后继续':'存档需要处理，原记录未改动',result.kind!=='saved');
     display(result.kind);
@@ -194,12 +219,37 @@ export function createSaveFlow({ game, leaderboard, pauses, showModal, onNew, on
 
   return {
     store, initialize, flush, newGame,
+    get roundId() { return roundId; },
     get blocked() { return state!=='active'; },
     get canSubmit() { return state==='active' && (store.owned || temporary); },
     get restored() { return Boolean(record && roundId===record.roundId); },
     show() { if(state==='active') { if(failure)display('write'); } else display(state==='saved'?'saved':state==='busy'?'busy':state==='invalid'?'invalid':'unavailable'); },
     invalidateOffer() { operation++; },
-    tick(now) { if(state==='active' && !game.paused && !failure && now-lastSave>=1000)flush(); },
+    tick(now) { if(state==='active' && !game.over && !game.paused && !failure && now-lastSave>=1000)flush(); },
+    stageResult(entry) {
+      protectedResult=entry.roundId;
+      if(!store.owned || temporary)return false;
+      try { store.stageResult(entry);status('本局结果已保留，准备上传');return true; }
+      catch { status('本局结果尚未保存，请勿刷新',true);return false; }
+    },
+    updateJournal(entry) {
+      if(!store.owned)return false;
+      const existing=store.read();
+      if(existing.record?.roundId!==entry.roundId)return false;
+      try { store.stageResult(entry);return true; } catch { return false; }
+    },
+    clearFinished(id) {
+      const existing=store.read();
+      if(existing.kind==='empty') { if(protectedResult===id)protectedResult=null;return true; }
+      if(!existing.record)return false;
+      if(existing.record.roundId!==id)return true;
+      if(!store.owned)return false;
+      try {
+        store.remove();record=null;if(protectedResult===id)protectedResult=null;
+        if(roundId===id && game.over)status('本局棋盘已清理，成绩由待处理记录跟踪');
+        return true;
+      } catch { return false; }
+    },
     finish() {
       if(store.owned && !temporary) {
         try { store.remove();record=null;status('本局已结束，未完成存档已清理'); }

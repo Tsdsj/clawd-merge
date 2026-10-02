@@ -79,14 +79,24 @@ npx wrangler deploy
 
 恢复核验的 `status` 为 `valid`、`expired`、`used` 或 `invalid`。不存在或不属于当前玩家的凭证统一返回 `invalid`，`expiresAt` 为 `null`；未认证返回 401。有效期仍为原开局后 3 小时，核验使用服务端时间并返回 `Cache-Control: no-store`。恢复成功不免除最终成绩提交时的校验；客户端不能通过恢复申请替代凭证。
 
-包含断点续玩的版本应先更新 Worker，再发布前端；本次接口不需要 D1 迁移。旧客户端的开局和提交字段保持兼容。
+断点续玩的只读接口本身不改表；包含可靠补传的版本必须先应用 `0003_score_receipts.sql`，再更新 Worker，最后发布前端。旧客户端的开局和提交字段保持兼容。
+
+### 成绩幂等回执
+
+`POST /api/score` 以服务端 sessionId 唯一标识一局。相同身份、相同 score/drops/maxLevel 的重复请求返回首次接受时的 `{ improved, best, rank }`；不同内容返回 409 `score_conflict`。回执中的排名是提交时个人最佳排名，实时名次通过 `/api/me` 或榜单查询。
+
+凭证消费、成绩写入、局数累加、最佳成绩条件更新、回执接受在同一个 D1 batch 事务完成。任何写入失败整体回滚，凭证仍可重试。回执独立于 sessions 保留，开新局清理已用凭证不会删除回执；已经接受的结果可在原凭证过期后确认。首次提交仍须满足原有效期和全部防刷规则。
+
+429 响应带 `Retry-After`（秒），CORS 显式暴露该头；401 等待原身份重新登录，规则拒绝与内容冲突不应无限重试。请求限流仍适用于重复查询。游客与已有 LINUX DO 身份合并时，已上传成绩和回执归属一起迁移；前端要求先处理未确认游客成绩再绑定。
+
+迁移为增量加表，不重置历史成绩。升级前已经使用、却没有可关联回执的旧 session 不会被猜测为成功。回退代码时保留回执表和数据；旧版 Worker 不具备新的补传语义，不能与宣称可靠补传的前端混用。
 
 ## 安全
 
 - **token**：浏览器保存一个随机 token（localStorage），数据库里只存它的 SHA-256；一个账号可以有多个 token（多设备）。
 - **LINUX DO 登录**：标准 OAuth2 授权码流程。`state` 随机、一次性、10 分钟过期（防 CSRF）；登录完成后只把 2 分钟有效的**一次性登录码**放进网址，前端再用它换 token，真正的 token 不会出现在网址或浏览器历史里；登录后只允许跳回 `ALLOWED_ORIGINS` 里的页面（防开放重定向）。被禁言或未激活的 L 站账号不能登录。
 - **防刷（尽力而为）**：网页游戏的成绩总是可以被伪造，这里挡住的是明显的作弊：
-  - 每局成绩必须带一个服务端签发、只能用一次的 `sessionId`；
+  - 每局成绩必须带服务端签发的 `sessionId`，只接受一次；同内容重试仅返回回执；
   - 从开局到提交的**真实耗时**必须够完成这么多次投放（每次投放至少间隔 0.5 秒）；
   - 分数不能超过投放次数允许的上限；
   - 注册、登录、改名、开局、提交都有频率限制。
@@ -99,6 +109,17 @@ npx wrangler deploy
 npm test          # 在仓库根目录运行接口测试（包括完整的 L 站登录流程）
 npm run lb:dev    # 本地 API: http://localhost:8787
 ```
+
+额外验证入口（不属于默认快速测试）：
+
+```bash
+node test/upload-timeout.integration.mjs  # 真实 HTTP 响应体停滞，约 16 秒
+MINIFLARE_MODULE=/path/to/node_modules/miniflare node leaderboard/test/d1-receipts.integration.mjs
+```
+
+第二条使用已有 Miniflare/workerd 包，在隔离本地 D1 上验证并发唯一接受、冲突拒绝、事务回滚和回执重放，不访问线上数据库，不向项目添加依赖。故意触发回滚时会打印预期的 `isolated rollback test` 错误，最终应显示 PASS 并以 0 退出。
+
+本地 `dev-server.mjs` 可选 `SCORE_FAULTS=1` 开启故障注入；默认关闭，部署的 Worker 不包含这些端点。`POST /__test__/score-mode` 接受 `pass`、`fail-before`、`drop-after`，`GET /__test__/stats` 只返回测试库的成绩、回执和局数计数。仅用于隔离测试数据，不用于线上。
 
 本地 API 跑起来后，打开 `http://localhost:5173/?api=http://localhost:8787` 就能连它玩，点「用 LINUX DO 登录」会跳到假的授权页，随便填个用户名即可。
 

@@ -193,3 +193,18 @@ test('score still progresses when preference writes fail, and reports persistenc
   assert.equal(g.best,10);
   assert.equal(g.persistenceWarning,true);
 });
+
+test('finished journal replaces the board atomically and never becomes a resumable game', async (t) => {
+  const {SaveStore}=await import('../src/save-store.js');
+  const store=new SaveStore({scope:'test',storage:memoryStorage(),locks:lockManager(),channelFactory:channels()});
+  t.after(()=>store.close());await store.acquire();
+  const g=await setup(t);g.drops=3;
+  store.write(store.record('round-final',g.snapshot(),null));
+  const result={roundId:'round-final',playerId:'player',playerName:'Test',sessionId:'ticket',score:123,drops:3,maxLevel:3};
+  store.stageResult(result);
+  assert.equal(store.read().kind,'terminal');
+  assert.deepEqual(store.read().record.terminal,result);
+  assert.equal(store.read().record.game,undefined);
+  assert.throws(()=>store.stageResult({...result,score:NaN}));
+  assert.deepEqual(store.read().record.terminal,result);
+});

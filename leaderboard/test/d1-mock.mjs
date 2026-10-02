@@ -22,6 +22,9 @@ class Statement {
     return { results: this.db.prepare(this.sql).all(...this.params), success: true };
   }
   async run() {
+    return this.execute();
+  }
+  execute() {
     const meta = this.db.prepare(this.sql).run(...this.params);
     return { success: true, meta };
   }
@@ -48,7 +51,8 @@ export function createD1(file = ':memory:', { upTo = Infinity } = {}) {
       db.exec('BEGIN');
       try {
         const out = [];
-        for (const s of statements) out.push(await s.run());
+        // D1 batches execute as one transaction, without JS awaits between SQL.
+        for (const s of statements) out.push(s.execute());
         db.exec('COMMIT');
         return out;
       } catch (err) {
