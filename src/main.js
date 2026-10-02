@@ -9,6 +9,7 @@ import { getStorage } from './storage.js';
 import { Outbox } from './outbox.js';
 import { createUploadUI } from './upload-ui.js';
 import { createChallengeUI } from './challenge-ui.js';
+import { createChallengeShareUI } from './challenge-share-ui.js';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -24,7 +25,7 @@ const guide = createGuide(getStorage(), Boolean(leaderboard.player));
 let roundVersion = 0;
 const pauses = new PauseState(syncPause);
 let saves;
-let daily;
+let daily, sharing;
 let outbox, uploads;
 
 function updateGuide() {
@@ -773,7 +774,7 @@ window.addEventListener('storage',event=>{
 window.addEventListener('online',()=>outbox.wakeOnline());
 window.addEventListener('pagehide',()=>outbox.stop());
 window.addEventListener('pageshow',event=>{if(event.persisted)outbox.start();});
-daily=createChallengeUI({scope:leaderboard.saveScope,identity:()=>{const p=leaderboard.uploadPlayer();return p?`${p.linuxdo?'L':'游客'} · ${displayName(p)}`:'';},
+daily=createChallengeUI({onShare:model=>void sharing.result(model),scope:leaderboard.saveScope,identity:()=>{const p=leaderboard.uploadPlayer();return p?`${p.linuxdo?'L':'游客'} · ${displayName(p)}`:'';},
   getPlayer:()=>leaderboard.uploadPlayer(),request:(path,options)=>leaderboard.challengeRequest(path,options),
   requestIdentity:()=>askName(),requestAccount:()=>{leaderboard.player=leaderboard.uploadPlayer();leaderboard.player?openAccount():askName();},
   classicSummary:()=>game.drops&&!game.over?`经典局仍保留 · ${game.score} 分，可随时切回继续。`:'经典模式与挑战使用独立存档。',
@@ -784,10 +785,18 @@ daily=createChallengeUI({scope:leaderboard.saveScope,identity:()=>{const p=leade
   },
   onExit(){document.querySelector('.app').classList.remove('hidden');pauses.set('mode',false);syncPause();layout();board.focus({preventScroll:true});soundBtn.classList.toggle('muted',!sfx.enabled);if(saves.blocked)saves.show();},
 });
+sharing=createChallengeShareUI({
+  pause(open){pauses.set('sharing',open);daily.setExternalModal(open,'sharing');if(open)clearInputs();},
+  getToday:()=>daily.invitationToday(),
+  summary:()=> '打开邀请不会扣除机会或修改经典、挑战存档。',
+  async enter(definition,formal){
+    if(!restoreModal.classList.contains('hidden'))showModal(restoreModal,false);
+    return daily.enterInvitation(definition,formal);
+  },
+});
 $('daily-open').onclick=()=>void daily.open();
 requestAnimationFrame(frame);
-initAccount();
-void saves.initialize().then(()=>outbox.start());
+void Promise.all([initAccount(),saves.initialize().then(()=>outbox.start())]).then(()=>sharing.openInvitation());
 
 async function initAccount() {
   showPlayer();

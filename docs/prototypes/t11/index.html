@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>T11 · 成绩分享与好友挑战原型</title>
+    <link rel="stylesheet" href="prototype.css" />
+  </head>
+  <body>
+    <header class="review">
+      <div>
+        <strong>T11 · 把这一局，交给朋友</strong>
+        <p>
+          独立可点击原型 · 日期与成绩均为示例 ·
+          不读写存档，不请求接口，不调用系统分享
+        </p>
+      </div>
+      <div class="controls">
+        <label
+          >审查状态<select id="scenario">
+            <option value="result">正式结果</option>
+            <option value="generating">正在生成图片</option>
+            <option value="share">分享预览 · 已提交</option>
+            <option value="pending">分享预览 · 待提交</option>
+            <option value="practice">分享预览 · 练习</option>
+            <option value="fallback">设备不支持图片分享</option>
+            <option value="error">图片生成失败</option>
+            <option value="long">超长中文昵称</option>
+            <option value="loading">朋友打开 · 核验中</option>
+            <option value="invite">朋友打开 · 今日题</option>
+            <option value="old">朋友打开 · 旧题</option>
+            <option value="offline">朋友打开 · 核验失败</option>
+            <option value="invalid">链接无效</option>
+            <option value="version">规则版本不支持</option>
+          </select></label
+        ><label class="check"
+          ><input id="wire" type="checkbox" />线框视图</label
+        >
+      </div>
+      <details>
+        <summary>流程与设计重点</summary>
+        <p>
+          结算 → 分享预览 → 系统分享 / 保存图片 / 复制链接 → 朋友查看邀请 →
+          主动选择正式或练习。打开邀请不扣机会、不替换原局；旧题只练习；链接中的目标分未经验证。
+        </p>
+      </details>
+    </header>
+    <main class="shell">
+      <header class="brand">
+        <h1>合成大Clawd</h1>
+        <span>每日挑战</span>
+      </header>
+      <section id="result">
+        <p class="eyebrow">10 月 03 日 · 正式挑战</p>
+        <h2>这一局，合得不错</h2>
+        <canvas id="result-crab" aria-label="最高合成：忍者 Clawd"></canvas>
+        <p class="score">3,465</p>
+        <p class="sub center">100 / 100 投 · 最高合成 Ninja Clawd</p>
+        <div class="notice">成绩已提交 · 今日个人最好 3,465 分</div>
+        <button id="open-share" class="primary">分享这一局</button>
+        <div class="pair">
+          <button id="again">再挑战</button
+          ><button id="board">查看今日榜</button>
+        </div>
+        <p class="fine">分享不会消耗正式机会</p>
+      </section>
+      <section id="share" hidden>
+        <div class="heading">
+          <h2>分享这一局</h2>
+          <button id="back" class="text-button">返回结果</button>
+        </div>
+        <p class="sub">同一道题，你能合到多少分？</p>
+        <article class="share-card" id="card" aria-label="成绩分享卡预览">
+          <div class="card-top">
+            <b>合成大Clawd</b><span id="badge">正式 · 已提交</span>
+          </div>
+          <p class="card-date">每日挑战 / 2026.10.03</p>
+          <div class="player" id="player">橙色钳子</div>
+          <div class="score">3,465</div>
+          <div class="crab-row">
+            <canvas id="card-crab" aria-label="忍者 Clawd"></canvas>
+            <div>
+              <b>Ninja Clawd</b>
+              <p>最高合成 · Lv.9</p>
+            </div>
+          </div>
+          <div class="card-meta">
+            <span>100 次投放</span><span>规则 daily-1</span>
+          </div>
+          <p class="invite-copy">同一道题，等你来挑战。</p>
+          <footer>
+            <b>tsdsj.github.io/clawd-merge/</b>
+            <p>#challenge=2026-10-03&amp;rules=daily-1&amp;target=3465</p>
+          </footer>
+        </article>
+        <div id="image-loading" class="notice" hidden role="status">
+          正在生成图片…<br />可以先复制挑战链接。
+        </div>
+        <button id="finish-image" class="demo" hidden>
+          演示：图片生成完成
+        </button>
+        <div id="image-error" class="notice" hidden>
+          图片暂时生成失败。可以重试，或先复制同题链接。
+        </div>
+        <p id="share-note" class="sub">
+          图片在本机生成。目标分由分享者提供，不代表官方排名。
+        </p>
+        <button id="native-share" class="primary">分享图片与链接</button>
+        <div class="pair">
+          <button id="save">保存图片</button
+          ><button id="copy">复制挑战链接</button>
+        </div>
+        <button id="retry-image" hidden>重新生成图片</button>
+        <details>
+          <summary>查看链接内容</summary>
+          <p class="link-example">
+            https://tsdsj.github.io/clawd-merge/#challenge=2026-10-03&amp;rules=daily-1&amp;target=3465
+          </p>
+          <p class="sub">
+            只包含题目、规则和目标分；不含昵称、登录凭据或个人标识。
+          </p>
+        </details>
+        <button id="open-invite" class="demo">演示：朋友打开链接 →</button>
+      </section>
+      <section id="invite" hidden>
+        <p class="eyebrow">收到一个同题挑战</p>
+        <h2 id="invite-title">10 月 03 日，来试一局</h2>
+        <p class="sub" id="invite-status">今日题目已由服务器确认</p>
+        <div class="target">
+          <span>朋友的目标分</span><strong>3,465</strong
+          ><small>分享者填写 · 未经核验</small>
+        </div>
+        <p id="invite-description">
+          相同投放序列，共 100 投。正式挑战使用你自己的身份和今日机会。
+        </p>
+        <div class="notice" id="saved-notice">
+          你的原局已保留 · 2,864 分 / 剩余 37 投
+        </div>
+        <button id="formal" class="primary">查看今日正式挑战</button
+        ><button id="practice-invite">练这道题 · 不参与排名</button
+        ><button id="finish-check" class="demo" hidden>
+          演示：题目核验完成</button
+        ><button id="retry-invite" hidden>重新核验题目</button
+        ><button id="home" class="text-button">暂不挑战，返回我的游戏</button>
+        <p class="fine">查看邀请不扣次数。开始新局前会确认是否替换原局。</p>
+      </section>
+      <p id="feedback" role="status" aria-live="polite"></p>
+    </main>
+    <dialog id="dialog">
+      <h2 id="dialog-title"></h2>
+      <p id="dialog-copy"></p>
+      <div class="pair">
+        <button id="cancel-dialog">保留原局</button
+        ><button id="confirm-dialog" class="primary">确认（演示）</button>
+      </div>
+    </dialog>
+    <script type="module" src="prototype.js"></script>
+  </body>
+</html>

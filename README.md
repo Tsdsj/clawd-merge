@@ -244,3 +244,5 @@ Add `?debug` to the URL to see collision shapes.
 ## Disclaimer & license
 
 Clawd is Anthropic's mascot for Claude Code. This is an unofficial fan game, **not affiliated with or endorsed by Anthropic**. Code is released under the [MIT](LICENSE) license. Thanks to the [LINUX DO](https://linux.do) community.
+
+当前开发版支持每日挑战结果的本地 PNG 分享卡及同题链接：旧题只练习，目标分不作为官方成绩证明。支持平台可调用系统分享，其他平台可保存图片或复制链接；详情见 [T11 验证记录](docs/verification/m2-t11.md)。尚未部署到线上。

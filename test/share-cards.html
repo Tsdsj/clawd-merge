@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  /><title>分享卡生成验收</title
+  ><style>
+    body {
+      font: 16px system-ui;
+      background: #101321;
+      color: #eee;
+      margin: 20px;
+    }
+    main {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+    section {
+      width: min(100%, 300px);
+    }
+    canvas {
+      width: 100%;
+      height: auto;
+    }
+    h2 {
+      font-size: 16px;
+    }
+    a {
+      color: #f0bd9f;
+    }
+    #status {
+      white-space: pre-wrap;
+    }
+  </style>
+  <h1>真实分享卡生成</h1>
+  <p>隔离样例，无存档、API 或系统分享；使用产品 Canvas 绘制和 PNG 编码。</p>
+  <pre id="status" role="status">正在生成…</pre>
+  <main id="cards"></main>
+  <script type="module" src="share-cards.mjs"></script>
+</html>
