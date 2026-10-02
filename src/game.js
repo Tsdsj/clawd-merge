@@ -42,9 +42,7 @@ let hapticsReady = false;
 export const enableHaptics = () => {
   hapticsReady = true;
 };
-const buzz = (pattern) => {
-  if (hapticsReady && navigator.vibrate) navigator.vibrate(pattern);
-};
+const DEFAULT_EFFECTS = Object.freeze({reduced:false,shake:true,particles:true,haptics:false});
 
 // How far each Clawd's hitbox reaches left/right of its centre (for aiming).
 const extents = new Map();
@@ -69,7 +67,8 @@ function loadSeen() {
 }
 
 export class Game {
-  constructor(canvas, events = {}, { seed, challenge = null } = {}) {
+  constructor(canvas, events = {}, { seed, challenge = null, comfort = () => DEFAULT_EFFECTS } = {}) {
+    this.comfort = comfort;
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.events = events;
@@ -84,6 +83,21 @@ export class Game {
     this.best = this.persistPreferences ? Number(readPreference(BEST_KEY)) || 0 : 0;
     this.seen = this.persistPreferences ? loadSeen() : new Set([1]);
     this.reset();
+  }
+
+  get effects() { return this.comfort(); }
+
+  applyComfort() {
+    const e=this.effects;
+    if(!e.particles)this.particles.length=0;
+    if(e.reduced)this.rings.length=0;
+    if(!e.shake)this.shake=0;
+  }
+
+  buzz(pattern) {
+    if(this.effects.haptics && hapticsReady && globalThis.navigator?.vibrate) {
+      try { navigator.vibrate(pattern); } catch { /* Device feedback is optional. */ }
+    }
   }
 
   reset() {
@@ -315,10 +329,10 @@ export class Game {
       this.addScore(Math.round((RULES.points(level) + KING_BONUS) * mult), x, y);
       this.burst(x, y, 90, colors ?? ['#F7C948', '#FFE08A', '#D97757', '#FFFFFF']);
       this.ring(x, y, 40, 260, '#F7C948');
-      this.shake = 12;
+      this.shake = this.effects.shake ? 12 : 0;
       this.floatText('Clawd 之王!', WORLD_W / 2, WORLD_H / 2 - 40, 30, '#F7C948', 2);
       sfx.jackpot();
-      buzz(80);
+      this.buzz(80);
       this.addFever(20);
       return;
     }
@@ -342,7 +356,7 @@ export class Game {
     const tint = defOf(nl).color;
     this.burst(x, y, 10 + nl * 3, colors ?? (nl === MAX_LEVEL ? ['#F7C948', '#FFE08A', tint, '#FFFFFF'] : [tint, tint, '#FFFFFF', defOf(level).color]));
     this.ring(x, y, defOf(nl).width * 0.3, defOf(nl).width * 0.9, rainbow ? '#FFFFFF' : tint);
-    if (nl >= 7) this.shake = Math.max(this.shake, 2 + (nl - 7) * 1.5);
+    if (nl >= 7 && this.effects.shake) this.shake = Math.max(this.shake, 2 + (nl - 7) * 1.5);
 
     if (nl > this.maxLevel) {
       this.maxLevel = nl;
@@ -357,7 +371,7 @@ export class Game {
     this.addFever(nl + Math.min(this.combo - 1, 4));
     if (rainbow) sfx.rainbow();
     sfx.merge(nl, this.combo);
-    if (nl >= 6) buzz(nl >= 9 ? 40 : 15);
+    if (nl >= 6) this.buzz(nl >= 9 ? 40 : 15);
   }
 
   addFever(amount) {
@@ -369,7 +383,7 @@ export class Game {
       this.floatText('狂热模式! 得分 ×2', WORLD_W / 2, 200, 24, '#FFD84D', 1.8);
       this.burst(WORLD_W / 2, 160, 40, ['#FFD84D', '#FF9F43', '#FFFFFF']);
       sfx.fever();
-      buzz([20, 40, 20]);
+      this.buzz([20, 40, 20]);
       this.events.onFever?.(true);
     }
   }
@@ -430,7 +444,7 @@ export class Game {
     this.clawsUsed++;
     this.clawMode = false;
     sfx.claw();
-    buzz(25);
+    this.buzz(25);
     this.events.onClaws?.(this.claws, this.clawMode);
     return true;
   }
@@ -492,7 +506,7 @@ export class Game {
       this.events.onFever?.(false);
     }
     sfx.over();
-    buzz([40, 60, 40]);
+    this.buzz([40, 60, 40]);
     this.events.onGameOver?.({
       score: this.score,
       best: this.best,
@@ -504,6 +518,7 @@ export class Game {
   // ---------- effects ----------
 
   burst(x, y, count, colors) {
+    if(!this.effects.particles)return;
     colors ??= ['#D97757', '#F0A07F', '#FFE3C2', '#FFFFFF'];
     for (let i = 0; i < count; i++) {
       const angle = rand(0, Math.PI * 2);
@@ -524,6 +539,7 @@ export class Game {
   }
 
   dust(x, y, count) {
+    if(!this.effects.particles)return;
     for (let i = 0; i < count; i++) {
       const life = rand(0.25, 0.5);
       this.particles.push({
@@ -541,6 +557,7 @@ export class Game {
   }
 
   confetti() {
+    if(!this.effects.particles)return;
     for (let i = 0; i < 70; i++) {
       const life = rand(1.2, 2.2);
       this.particles.push({
@@ -558,6 +575,7 @@ export class Game {
   }
 
   ring(x, y, r0, r1, color) {
+    if(this.effects.reduced)return;
     this.rings.push({ x, y, r0, r1, color, life: 0.45, max: 0.45 });
   }
 
@@ -566,6 +584,7 @@ export class Game {
   }
 
   updateEffects(dt) {
+    this.applyComfort();
     for (const p of this.particles) {
       p.vy += p.g * dt;
       p.x += p.vx * dt;
@@ -574,7 +593,7 @@ export class Game {
     }
     this.particles = this.particles.filter((p) => p.life > 0);
     for (const t of this.texts) {
-      t.y -= 40 * dt;
+      if(!this.effects.reduced)t.y -= 40 * dt;
       t.life -= dt;
     }
     this.texts = this.texts.filter((t) => t.life > 0);
@@ -615,6 +634,7 @@ export class Game {
   }
 
   render() {
+    this.applyComfort();
     const ctx = this.ctx;
     const k = this.scale * this.dpr;
     const now = this.visualTime;
@@ -626,7 +646,7 @@ export class Game {
     ctx.setTransform(k, 0, 0, k, sx * k, sy * k);
 
     if (this.fever) {
-      ctx.fillStyle = `rgba(255, 190, 80, ${0.07 + 0.04 * Math.sin(now * 8)})`;
+      ctx.fillStyle = `rgba(255, 190, 80, ${this.effects.reduced ? 0.07 : 0.07 + 0.04 * Math.sin(now * 8)})`;
       ctx.fillRect(-20, -20, WORLD_W + 40, WORLD_H + 40);
     }
     this.drawDangerLine(ctx);
@@ -670,15 +690,15 @@ export class Game {
   }
 
   rainbowFrame() {
-    return Math.floor(this.visualTime / 0.09) % RAINBOW_FRAMES;
+    return this.effects.reduced ? 0 : Math.floor(this.visualTime / 0.09) % RAINBOW_FRAMES;
   }
 
   drawCrab(ctx, crab) {
     if (this.time > crab.blinkAt + 0.15) crab.blinkAt = this.time + rand(2, 6);
-    const blink = this.time >= crab.blinkAt;
+    const blink = !this.effects.reduced && this.time >= crab.blinkAt;
     const age = this.time - crab.born;
-    const pop = crab.pop && age < 0.25 ? 0.55 + 0.45 * easeOutBack(age / 0.25) : 1;
-    const s = crab.squash;
+    const pop = !this.effects.reduced && crab.pop && age < 0.25 ? 0.55 + 0.45 * easeOutBack(age / 0.25) : 1;
+    const s = this.effects.reduced ? 0 : crab.squash;
     this.drawSprite(ctx, crab.level, crab.x, crab.y, {
       angle: crab.angle,
       sx: pop * (1 + s * 0.7),
@@ -718,8 +738,8 @@ export class Game {
     ctx.stroke();
     ctx.restore();
 
-    const bob = Math.sin(this.visualTime / 0.25) * 1.5;
-    const s = 0.6 + 0.4 * easeOutBack((t - 0.5) / 0.5);
+    const bob = this.effects.reduced ? 0 : Math.sin(this.visualTime / 0.25) * 1.5;
+    const s = this.effects.reduced ? 1 : 0.6 + 0.4 * easeOutBack((t - 0.5) / 0.5);
     this.drawSprite(ctx, level, x, DROP_Y + bob, { sx: s, sy: s, frame: this.rainbowFrame() });
   }
 
@@ -727,7 +747,7 @@ export class Game {
     let color = 'rgba(217, 119, 87, 0.3)';
     if (this.warning === 1) color = 'rgba(255, 130, 100, 0.65)';
     if (this.warning === 2) {
-      const on = Math.sin(this.visualTime / 0.07) > 0;
+      const on = this.effects.reduced || Math.sin(this.visualTime / 0.07) > 0;
       color = `rgba(255, 72, 72, ${on ? 0.95 : 0.35})`;
     }
     ctx.save();
@@ -748,7 +768,7 @@ export class Game {
   // Seconds left before game over, drawn on top of everything so it's never hidden.
   drawCountdown(ctx, now) {
     const left = Math.max(0, RULES.gameOverTime - this.danger);
-    const pulse = 1 + 0.08 * Math.sin(now * 14);
+    const pulse = this.effects.reduced ? 1 : 1 + 0.08 * Math.sin(now * 14);
     ctx.save();
     ctx.translate(WORLD_W / 2, LINE_Y + 26);
     ctx.scale(pulse, pulse);
@@ -772,7 +792,7 @@ export class Game {
     ctx.fillStyle = 'rgba(255, 255, 255, 0.06)';
     ctx.fillRect(0, 0, WORLD_W, h);
     if (this.fever) {
-      const on = Math.sin(now * 12) > 0;
+      const on = this.effects.reduced || Math.sin(now * 12) > 0;
       ctx.fillStyle = on ? '#FFD84D' : '#FF9F43';
       ctx.fillRect(0, 0, (WORLD_W * this.feverTime) / FEVER_TIME, h);
       ctx.font = `900 13px ${FONT}`;
@@ -832,7 +852,7 @@ export class Game {
     ctx.fillRect(0, 0, WORLD_W, WORLD_H);
     ctx.textAlign = 'center';
     ctx.font = `800 17px ${FONT}`;
-    ctx.fillStyle = `rgba(143, 227, 255, ${0.75 + 0.25 * Math.sin(now * 6)})`;
+    ctx.fillStyle = `rgba(143, 227, 255, ${this.effects.reduced ? 1 : 0.75 + 0.25 * Math.sin(now * 6)})`;
     ctx.fillText('点一只 Clawd 把它夹走', WORLD_W / 2, 60);
     ctx.restore();
   }
@@ -850,9 +870,9 @@ export class Game {
 
     ctx.save();
     ctx.translate(WORLD_W / 2, cy - 10);
-    ctx.rotate(now * 0.8);
+    ctx.rotate(this.effects.reduced ? 0 : now * 0.8);
     ctx.fillStyle = 'rgba(255, 216, 77, 0.12)';
-    for (let i = 0; i < 12; i++) {
+    for (let i = 0; !this.effects.reduced && i < 12; i++) {
       ctx.rotate((Math.PI * 2) / 12);
       ctx.beginPath();
       ctx.moveTo(0, 0);
@@ -863,7 +883,7 @@ export class Game {
     }
     ctx.restore();
 
-    const size = (Math.min(110, def.width * 1.6) / def.width) * (0.4 + 0.6 * easeOutBack(Math.min(1, t / 0.4)));
+    const size = (Math.min(110, def.width * 1.6) / def.width) * (this.effects.reduced ? 1 : 0.4 + 0.6 * easeOutBack(Math.min(1, t / 0.4)));
     this.drawSprite(ctx, level, WORLD_W / 2, cy - 10, { size, frame: this.rainbowFrame() });
 
     ctx.textAlign = 'center';

@@ -10,6 +10,10 @@ import { Outbox } from './outbox.js';
 import { createUploadUI } from './upload-ui.js';
 import { createChallengeUI } from './challenge-ui.js';
 import { createChallengeShareUI } from './challenge-share-ui.js';
+import {ComfortSettings} from './comfort.js';
+import {createComfortUI} from './comfort-ui.js';
+const comfortSettings=new ComfortSettings();
+let comfortPanel;
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -115,7 +119,7 @@ const game = new Game(canvas, {
     overTimer = setTimeout(() => overlay.classList.remove('hidden'), 700);
     submitScore({ score, drops: game.drops, maxLevel });
   },
-});
+}, {comfort:()=>comfortSettings.effects});
 game.debug = new URLSearchParams(location.search).has('debug');
 
 function restart() {
@@ -205,13 +209,12 @@ function beginRound() {
 const nameModal = $('name-modal');
 const rankModal = $('rank-modal');
 const accountModal = $('account-modal');
-const helpModal = $('help-modal');
 const restartModal = $('restart-modal');
 const restoreModal = $('restore-modal');
 const pendingModal = $('pending-modal');
 const removeResultModal = $('remove-result-modal');
 const finalRank = $('final-rank');
-const modals = [nameModal, rankModal, accountModal, helpModal, restartModal, restoreModal,pendingModal,removeResultModal];
+const modals = [nameModal, rankModal, accountModal, restartModal, restoreModal,pendingModal,removeResultModal];
 const modalOpen = () => document.body.classList.contains('modal-open');
 const modalFocus = new WeakMap();
 
@@ -329,14 +332,13 @@ function askName(message = '') {
 $('join-btn').addEventListener('click', () => askName());
 $('result-join').addEventListener('click', () => askName());
 $('name-close').addEventListener('click', () => showModal(nameModal, false));
-$('help-btn').addEventListener('click', () => showModal(helpModal, true));
-$('help-close').addEventListener('click', () => showModal(helpModal, false));
+$('help-btn').addEventListener('click', () => comfortPanel.open({mode:'classic'}));
 $('cancel-restart').addEventListener('click', () => showModal(restartModal, false));
 $('confirm-restart').addEventListener('click', restartNow);
 $('pause-btn').addEventListener('click', togglePause);
 $('resume-btn').addEventListener('click', togglePause);
 $('guide-dismiss').addEventListener('click', () => { guide.dismiss(); updateGuide(); });
-for (const modal of [nameModal, helpModal]) modal.addEventListener('click', (e) => {
+for (const modal of [nameModal]) modal.addEventListener('click', (e) => {
   if (e.target === modal) showModal(modal, false);
 });
 
@@ -774,7 +776,7 @@ window.addEventListener('storage',event=>{
 window.addEventListener('online',()=>outbox.wakeOnline());
 window.addEventListener('pagehide',()=>outbox.stop());
 window.addEventListener('pageshow',event=>{if(event.persisted)outbox.start();});
-daily=createChallengeUI({onShare:model=>void sharing.result(model),scope:leaderboard.saveScope,identity:()=>{const p=leaderboard.uploadPlayer();return p?`${p.linuxdo?'L':'游客'} · ${displayName(p)}`:'';},
+daily=createChallengeUI({comfort:()=>comfortSettings.effects,onHelp:formal=>comfortPanel.open({mode:'daily',formal}),onShare:model=>void sharing.result(model),scope:leaderboard.saveScope,identity:()=>{const p=leaderboard.uploadPlayer();return p?`${p.linuxdo?'L':'游客'} · ${displayName(p)}`:'';},
   getPlayer:()=>leaderboard.uploadPlayer(),request:(path,options)=>leaderboard.challengeRequest(path,options),
   requestIdentity:()=>askName(),requestAccount:()=>{leaderboard.player=leaderboard.uploadPlayer();leaderboard.player?openAccount():askName();},
   classicSummary:()=>game.drops&&!game.over?`经典局仍保留 · ${game.score} 分，可随时切回继续。`:'经典模式与挑战使用独立存档。',
@@ -785,6 +787,9 @@ daily=createChallengeUI({onShare:model=>void sharing.result(model),scope:leaderb
   },
   onExit(){document.querySelector('.app').classList.remove('hidden');pauses.set('mode',false);syncPause();layout();board.focus({preventScroll:true});soundBtn.classList.toggle('muted',!sfx.enabled);if(saves.blocked)saves.show();},
 });
+comfortPanel=createComfortUI({settings:comfortSettings,onPause(open){pauses.set('comfort',open);daily.setExternalModal(open,'comfort');if(open)clearInputs();}});
+function applyComfort(){document.body.classList.toggle('comfort-reduced',comfortSettings.effects.reduced);game.applyComfort();daily.applyComfort();}
+comfortSettings.subscribe(applyComfort);applyComfort();
 sharing=createChallengeShareUI({
   pause(open){pauses.set('sharing',open);daily.setExternalModal(open,'sharing');if(open)clearInputs();},
   getToday:()=>daily.invitationToday(),

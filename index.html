@@ -18,6 +18,7 @@
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="stylesheet" href="src/style.css" />
+    <link rel="stylesheet" href="src/comfort.css" />
     <link rel="stylesheet" href="src/challenge.css" />
   </head>
   <body>
@@ -74,7 +75,7 @@
             </button>
             <button id="pause-btn" class="btn ghost" title="暂停／继续 (P)">暂停</button>
             <button id="restart" class="btn">重新开始</button>
-            <button id="help-btn" class="icon-btn" aria-label="玩法说明" title="玩法说明">?</button>
+            <button id="help-btn" class="icon-btn" aria-label="玩法与舒适设置" title="玩法与舒适设置">?</button>
           </div>
         </div>
       </header>
@@ -152,7 +153,7 @@
       <header class="daily-header">
         <div class="title-row">
           <h1 class="title">合成大Clawd</h1>
-          <button class="icon-btn" id="daily-help" aria-label="每日挑战规则">?</button>
+          <button class="icon-btn" id="daily-help" aria-label="玩法与舒适设置">?</button>
         </div>
         <nav class="mode-switch" aria-label="游戏模式">
           <button id="daily-classic" aria-pressed="false">经典模式</button
@@ -347,19 +348,6 @@
         <p class="retained-progress">本机最高分和已解锁图鉴会保留。</p>
         <button class="btn restart-choice" id="cancel-restart">保留这局</button>
         <button class="btn danger-btn restart-choice" id="confirm-restart">放弃本局，重新开始</button>
-      </div>
-    </div>
-
-    <div class="modal hidden" id="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
-      <div class="sheet">
-        <h2 id="help-title">三步就会玩</h2>
-        <ol class="help-list">
-          <li>左右瞄准，点击或松手投放。电脑可用方向键与空格。</li>
-          <li>两只相同的 Clawd 碰到一起，会合成为更大的 Clawd。</li>
-          <li>落稳后超过危险线 3 秒，游戏结束；飞在空中的不算。</li>
-        </ol>
-        <p class="hint">钳子：夹走一只；彩虹：让碰到的 Clawd 升级；狂热：8 秒内得分翻倍。</p>
-        <button class="btn" id="help-close" type="button">知道了</button>
       </div>
     </div>
 

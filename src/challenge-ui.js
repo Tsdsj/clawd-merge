@@ -21,6 +21,8 @@ export function createChallengeUI({
   requestIdentity,
   requestAccount,
   onShare,
+  comfort,
+  onHelp,
 }) {
   const $ = (id) => document.getElementById(`daily-${id}`);
   const root = $("app"),
@@ -512,7 +514,7 @@ export function createChallengeUI({
           },
           onClaws: () => {},
         },
-        { challenge },
+        { challenge, comfort },
       ),
   });
   uploads = new ChallengeUploads({
@@ -1098,12 +1100,7 @@ export function createChallengeUI({
     sfx.toggle();
     updatePlay();
   };
-  $("help").onclick = () =>
-    ask(
-      "每日挑战怎么玩",
-      "相同题目使用同一掉落序列，每局 100 投。游客与 LINUX DO 均可正式挑战，每日 3 次；练习不限次数，不上榜。\n最后一投后停止投放和道具操作，落稳持续 0.75 秒或到达 8 秒上限后结算。\n题目在服务器北京时间每日 00:00 更新，旧题正式成绩须在次日 00:10 前提交，并以服务器校验为准。暂停与刷新不会延长截止，也不会退回已用机会。",
-      [["知道了", () => {}]],
-    );
+  $("help").onclick = () => onHelp(formal());
   const playable = () =>
     active &&
     view === "play" &&
@@ -1222,6 +1219,7 @@ export function createChallengeUI({
     }
   });
   const controller = {
+    applyComfort: () => current()?.applyComfort(),
     get active() {
       return active;
     },
