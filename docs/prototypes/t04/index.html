@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>T04 · 暂停与重开保护原型</title>
+  <link rel="stylesheet" href="../../../src/style.css">
+  <style>
+    .review-bar { padding:12px 16px; border-bottom:1px solid var(--line); background:#111523; display:flex; flex-wrap:wrap; align-items:center; justify-content:center; gap:8px 16px; font-size:12px; }
+    .review-bar p { color:#c1b8cd; line-height:1.5; }
+    .review-bar button { font:inherit; background:#272b42; color:var(--text); border:1px solid #5b566c; border-radius:5px; padding:7px 10px; min-height:34px; cursor:pointer; }
+    .review-bar .scenario-controls { display:flex; flex-wrap:wrap; gap:6px; }
+    .review-bar output { color:#efad90; font-variant-numeric:tabular-nums; }
+    .app { height:calc(100dvh - 100px); }
+    .stage { position:relative; }
+    .board { cursor:default; }
+    .board canvas { width:100%; height:100%; }
+    .pause-cover { position:absolute; inset:0; display:grid; place-items:center; padding:12px; background:#101526d6; cursor:default; }
+    .pause-panel { width:100%; max-width:290px; padding:20px 16px; text-align:center; background:#24273c; border:1px solid #9d715c; border-radius:9px; max-height:100%; overflow:auto; }
+    .pause-panel h2 { font-size:25px; color:#e9a789; }
+    .pause-panel p { font-size:12px; line-height:1.7; color:#c3b9ca; margin:10px 0; }
+    .pause-panel .btn { width:100%; min-height:44px; margin-top:8px; }
+    .pause-panel .link-btn { margin-top:10px; min-height:36px; }
+    .caption { text-align:center; font-size:11px; color:var(--muted); }
+    dialog { margin:auto; border:0; color:var(--text); }
+    dialog.sheet { width:min(340px,calc(100% - 32px)); max-height:calc(100dvh - 32px); }
+    dialog:not([open]) { display:none; }
+    dialog::backdrop { background:#080914bd; }
+    dialog p { line-height:1.7; font-size:13px; color:#c3b9ca; }
+    dialog .btn { min-height:44px; width:100%; margin-top:10px; }
+    .danger-btn { background:#a54f40; box-shadow:0 3px #74382e; }
+    .retained { padding:12px; background:#171b2c; border-radius:6px; width:100%; }
+    .mock-ranks { width:100%; padding:0; list-style:none; font-size:14px; }
+    .mock-ranks li { display:flex; justify-content:space-between; padding:12px 0; border-bottom:1px solid var(--line); }
+    #demo-clock { display:inline-block; min-width:118px; }
+    @media(max-width:480px) { .review-bar { justify-content:flex-start; gap:7px; padding:10px 12px; } .review-bar p { font-size:11px; } .actions { gap:6px; } .actions .btn { padding:8px 10px; } }
+    @media(orientation:landscape) and (max-height:540px) { .app .legend { display:none; } .pause-panel { padding:10px; } .review-bar p { display:none; } }
+  </style>
+</head>
+<body>
+  <header class="review-bar" id="review-bar">
+    <div><strong>T04 · 暂停与重开保护</strong><p>独立交互原型，示例棋盘；不保存或提交成绩。</p></div>
+    <nav class="scenario-controls" aria-label="演示场景">
+      <button id="scenario-playing">进行中</button><button id="scenario-away">模拟后台返回</button><button id="scenario-empty">空局</button>
+    </nav>
+    <output id="demo-clock" aria-label="原型运行时间">模拟运行 0.0 秒</output>
+  </header>
+  <main class="app">
+    <header class="top">
+      <div class="title-row"><h1 class="title">合成大Clawd</h1><button class="icon-btn rank-btn" id="rank" aria-label="排行榜">榜</button></div>
+      <div class="player-row"><p class="round-status">本地游玩 · 成绩仅保存在本机</p><button class="link-btn" id="account">加入排行榜 →</button></div>
+      <div class="hud">
+        <div class="score-box"><div class="score-line">分数: <span id="demo-score">2480</span></div><div class="best">本机最高 2480</div></div>
+        <div class="next-box"><span>下一个</span><canvas id="next"></canvas></div>
+        <div class="actions"><button class="icon-btn" disabled aria-label="钳子演示">钳</button><button class="icon-btn" disabled aria-label="音效演示">音</button><button class="btn ghost" id="pause">暂停</button><button class="btn" id="restart">重新开始</button><button class="icon-btn" id="help" aria-label="玩法说明">?</button></div>
+      </div>
+    </header>
+    <section class="stage" id="stage">
+      <div class="board" id="board" tabindex="0" aria-label="演示棋盘，空格演示投放，P 暂停，R 重开">
+        <canvas id="scene" width="400" height="640"></canvas>
+        <div class="pause-cover hidden" id="pause-cover"><div class="pause-panel">
+          <h2 id="pause-title">已暂停</h2>
+          <p id="pause-copy">这一局先放在这里。准备好了，再继续。</p>
+          <p>分数 <b id="paused-score">2480</b> · 进度保持不变</p>
+          <button class="btn" id="resume">继续游戏</button>
+          <button class="link-btn" id="paused-rank">看看排行榜</button>
+        </div></div>
+      </div>
+    </section>
+    <p class="caption">P 暂停／继续 · R 重新开始 · 空格演示投放</p>
+  </main>
+  <dialog class="sheet" id="restart-dialog" aria-labelledby="restart-title">
+    <h2 id="restart-title">要重新开始吗？</h2>
+    <p>当前这局还没结束，重新开始会清空棋盘和本局分数。</p>
+    <p class="retained">本机最高分和已解锁图鉴会保留。</p>
+    <button class="btn" id="cancel-restart" autofocus>保留这局</button>
+    <button class="btn danger-btn" id="confirm-restart">放弃本局，重新开始</button>
+  </dialog>
+  <dialog class="sheet" id="info-dialog" aria-labelledby="info-title">
+    <h2 id="info-title">排行榜</h2><p>游戏已暂停，关闭后回到之前的状态。</p>
+    <div id="info-content"></div>
+    <button class="btn" id="close-info" autofocus>关闭</button>
+  </dialog>
+  <script type="module">
+    import { drawCrabIcon } from '../../../src/crabs.js';
+    const $=(id)=>document.getElementById(id);
+    const reasons=new Set();
+    let drops=26, score=2480, elapsed=0, last=performance.now();
+    const dialogs=[$('restart-dialog'),$('info-dialog')];
+    const openDialog=()=>dialogs.some(d=>d.open);
+    const pieces=[[8,80,575,140,106],[5,210,593,92,70],[3,322,604,65,52],[4,300,541,75,58],[2,194,535,60,42]];
+    function draw() {
+      const ctx=$('scene').getContext('2d');ctx.fillStyle='#151a2e';ctx.fillRect(0,0,400,640);
+      ctx.strokeStyle='#b37f81';ctx.setLineDash([5,7]);ctx.beginPath();ctx.moveTo(8,140);ctx.lineTo(392,140);ctx.stroke();ctx.setLineDash([]);
+      ctx.fillStyle='#bca1a8';ctx.font='12px system-ui';ctx.fillText('危险线',343,160);
+      if(drops)for(const [level,x,y,w,h] of pieces){const icon=document.createElement('canvas');drawCrabIcon(icon,level,w,h,1);ctx.drawImage(icon,x-w/2,y-h/2);}
+      const current=document.createElement('canvas');drawCrabIcon(current,1,40,28,1);ctx.drawImage(current,180,50);
+    }
+    function render() {
+      const paused=reasons.has('manual')||reasons.has('background');
+      $('pause-cover').classList.toggle('hidden',!paused);
+      $('pause').textContent=paused?'继续':'暂停';
+      $('pause-title').textContent=reasons.has('background')?'欢迎回来':'已暂停';
+      $('pause-copy').textContent=reasons.has('background')?'离开时已经暂停，准备好了再继续。':'这一局先放在这里。准备好了，再继续。';
+      $('demo-score').textContent=score;$('paused-score').textContent=score;
+      $('demo-clock').textContent=`模拟运行 ${elapsed.toFixed(1)} 秒`;
+    }
+    function pause() { reasons.add('manual');render();$('resume').focus(); }
+    function resume() { reasons.delete('manual');reasons.delete('background');last=performance.now();render();$('board').focus(); }
+    function reset(empty=true) { reasons.clear();drops=empty?0:26;score=empty?0:2480;elapsed=0;last=performance.now();draw();render(); }
+    function restart() { if(!drops){reset();return;}reasons.add('dialog');$('restart-dialog').showModal();render(); }
+    function info(title,content) { reasons.add('dialog');$('info-title').textContent=title;$('info-content').innerHTML=content;$('info-dialog').showModal();render(); }
+    function background() { reasons.add('background');render();if(!openDialog())$('resume').focus(); }
+    $('pause').onclick=()=>reasons.has('manual')||reasons.has('background')?resume():pause();
+    $('resume').onclick=resume;$('restart').onclick=restart;
+    $('cancel-restart').onclick=()=>$('restart-dialog').close();
+    $('confirm-restart').onclick=()=>{$('restart-dialog').close();reset();$('board').focus();};
+    $('rank').onclick=$('paused-rank').onclick=()=>info('排行榜','<ol class="mock-ranks"><li><span>1 · 小钳子</span><b>12,480</b></li><li><span>2 · 咖啡Clawd</span><b>9,760</b></li></ol><p>以上为原型示例数据。</p>');
+    $('account').onclick=()=>info('加入排行榜','<p>正式实现复用 T03 身份选择；打开账号或身份弹窗期间，棋盘暂停。</p>');
+    $('help').onclick=()=>info('玩法说明','<p>相同的 Clawd 碰到一起会升级，落稳后超过危险线 3 秒结束。</p>');
+    $('close-info').onclick=()=>$('info-dialog').close();
+    for(const dialog of dialogs)dialog.addEventListener('close',()=>{reasons.delete('dialog');last=performance.now();render();});
+    $('scenario-playing').onclick=()=>reset(false);$('scenario-empty').onclick=()=>reset();$('scenario-away').onclick=background;
+    $('board').onclick=(e)=>{if(e.target.closest('button')||reasons.size)return;drops++;score+=12;draw();render();};
+    document.addEventListener('keydown',e=>{
+      if(openDialog())return;
+      if(e.code==='KeyP'&&!e.repeat){e.preventDefault();$('pause').click();}
+      if(e.code==='KeyR'&&!e.repeat){e.preventDefault();restart();}
+      if(e.code==='Space'&&e.target===$('board')&&!reasons.size){e.preventDefault();drops++;score+=12;draw();render();}
+    });
+    document.addEventListener('visibilitychange',()=>{if(document.hidden)background();last=performance.now();});
+    function layout(){const bar=$('review-bar').getBoundingClientRect().height;document.querySelector('.app').style.height=`calc(100dvh - ${bar}px)`;const r=$('stage').getBoundingClientRect();const w=Math.floor(Math.min(r.width-8,(r.height-8)*400/640));$('board').style.width=`${w}px`;$('board').style.height=`${w*640/400}px`;}
+    window.addEventListener('resize',layout);new ResizeObserver(layout).observe($('review-bar'));
+    drawCrabIcon($('next'),3,34,24,2);draw();layout();render();
+    setInterval(()=>{const now=performance.now();if(!reasons.size)elapsed+=(now-last)/1000;last=now;render();},100);
+  </script>
+</body>
+</html>

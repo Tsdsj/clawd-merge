@@ -68,6 +68,7 @@
                 />
               </svg>
             </button>
+            <button id="pause-btn" class="btn ghost" title="暂停／继续 (P)">暂停</button>
             <button id="restart" class="btn">重新开始</button>
             <button id="help-btn" class="icon-btn" aria-label="玩法说明" title="玩法说明">?</button>
           </div>
@@ -78,6 +79,15 @@
         <div class="board" id="board" tabindex="0" aria-label="游戏棋盘，左右方向键瞄准，空格投放">
           <canvas id="game"></canvas>
           <div class="first-drop hidden" id="first-drop"><b>点一下，落下第一只</b><p>手机左右拖动，松手投放<br>电脑也可用 ← → 瞄准、空格投放</p></div>
+          <div class="pause-cover hidden" id="pause-cover" role="region" aria-labelledby="pause-title">
+            <div class="pause-panel">
+              <h2 id="pause-title">已暂停</h2>
+              <p id="pause-copy">这一局先放在这里。准备好了，再继续。</p>
+              <p>分数 <b id="paused-score">0</b> · 进度保持不变</p>
+              <button class="btn" id="resume-btn">继续游戏</button>
+              <button class="link-btn" id="paused-rank">看看排行榜</button>
+            </div>
+          </div>
           <div class="overlay hidden" id="overlay">
             <div class="panel">
               <div class="over-title">游戏结束!</div>
@@ -186,6 +196,16 @@
     </div>
 
     <div class="toast hidden" id="toast" role="status"></div>
+
+    <div class="modal hidden" id="restart-modal" role="dialog" aria-modal="true" aria-labelledby="restart-title">
+      <div class="sheet">
+        <h2 id="restart-title">要重新开始吗？</h2>
+        <p class="sheet-sub">当前这局还没结束，重新开始会清空棋盘和本局分数。</p>
+        <p class="retained-progress">本机最高分和已解锁图鉴会保留。</p>
+        <button class="btn restart-choice" id="cancel-restart">保留这局</button>
+        <button class="btn danger-btn restart-choice" id="confirm-restart">放弃本局，重新开始</button>
+      </div>
+    </div>
 
     <div class="modal hidden" id="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
       <div class="sheet">

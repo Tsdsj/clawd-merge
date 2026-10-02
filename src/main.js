@@ -3,6 +3,7 @@ import { LEVELS, RAINBOW, defOf, drawCrabIcon, drawLegendIcon } from './crabs.js
 import { sfx } from './audio.js';
 import { leaderboard, displayName } from './leaderboard.js';
 import { createGuide } from './onboarding.js';
+import { PauseState } from './pause.js';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -16,6 +17,7 @@ const soundBtn = $('sound');
 const clawBtn = $('claw');
 const guide = createGuide(localStorage, Boolean(leaderboard.player));
 let roundVersion = 0;
+const pauses = new PauseState(syncPause);
 
 function updateGuide() {
   const step = guide.step;
@@ -95,6 +97,7 @@ const game = new Game(canvas, {
     if (active) featureTip('fever', '狂热模式：接下来 8 秒，合成得分翻倍！');
   },
   onGameOver({ score, best, maxLevel, isNewBest }) {
+    pauses.clear();
     $('final').textContent = score;
     $('final-best').textContent = best;
     $('final-level').textContent = defOf(maxLevel).name;
@@ -108,11 +111,64 @@ game.debug = new URLSearchParams(location.search).has('debug');
 
 function restart() {
   if (modalOpen()) return;
+  if (!game.over && game.drops > 0) {
+    showModal(restartModal, true);
+    return;
+  }
+  restartNow();
+}
+
+function restartNow() {
+  if (!restartModal.classList.contains('hidden')) showModal(restartModal, false);
   clearTimeout(overTimer);
   overlay.classList.add('hidden');
   game.reset();
+  pauses.clear();
   beginRound();
   updateGuide();
+  board.focus({ preventScroll: true });
+}
+
+function clearInputs() {
+  aiming = false;
+  keys.clear();
+  game.pendingDrop = false;
+  if (activePointer !== null && board.hasPointerCapture(activePointer)) board.releasePointerCapture(activePointer);
+  activePointer = null;
+}
+
+function syncPause() {
+  clearInputs();
+  game.setPaused(!game.over && pauses.paused);
+  last = performance.now();
+  document.body.classList.toggle('game-paused', game.paused);
+  const showCover = !game.over && (pauses.has('manual') || pauses.has('background'));
+  $('pause-cover').classList.toggle('hidden', !showCover);
+  $('pause-btn').textContent = showCover ? '继续' : '暂停';
+  $('pause-btn').disabled = game.over;
+  $('pause-title').textContent = pauses.has('background') ? '欢迎回来' : '已暂停';
+  $('pause-copy').textContent = pauses.has('background')
+    ? '离开时已经暂停，准备好了再继续。' : '这一局先放在这里。准备好了，再继续。';
+  $('paused-score').textContent = game.score;
+  $('paused-rank').classList.toggle('hidden', !leaderboard.enabled);
+  clawBtn.disabled = game.paused || (game.claws === 0 && !game.clawMode);
+}
+
+function togglePause() {
+  if (game.over || modalOpen()) return;
+  if (pauses.has('manual') || pauses.has('background')) {
+    pauses.resume();
+    board.focus({ preventScroll: true });
+  } else {
+    pauses.set('manual', true);
+    $('resume-btn').focus({ preventScroll: true });
+  }
+}
+
+function backgroundPause() {
+  clearInputs();
+  if (!game.over && (game.drops > 0 || pauses.paused || modalOpen())) pauses.set('background', true);
+  last = performance.now();
 }
 
 function beginRound() {
@@ -133,8 +189,9 @@ const nameModal = $('name-modal');
 const rankModal = $('rank-modal');
 const accountModal = $('account-modal');
 const helpModal = $('help-modal');
+const restartModal = $('restart-modal');
 const finalRank = $('final-rank');
-const modals = [nameModal, rankModal, accountModal, helpModal];
+const modals = [nameModal, rankModal, accountModal, helpModal, restartModal];
 const modalOpen = () => document.body.classList.contains('modal-open');
 const modalFocus = new WeakMap();
 
@@ -144,12 +201,14 @@ function showModal(modal, open) {
   const anyOpen = modals.some((m) => !m.classList.contains('hidden'));
   document.body.classList.toggle('modal-open', anyOpen);
   document.querySelector('.app').inert = anyOpen;
-  aiming = false;
-  keys.clear();
+  clearInputs();
+  pauses.set('modal', anyOpen);
   if (open) modal.querySelector('button:not(:disabled), input')?.focus();
   else if (!anyOpen) {
     const previous = modalFocus.get(modal);
-    (previous?.getClientRects().length ? previous : board).focus();
+    const target = !game.over && pauses.has('background') ? $('resume-btn')
+      : previous?.getClientRects().length ? previous : board;
+    target.focus({ preventScroll: true });
   }
 }
 
@@ -242,6 +301,10 @@ $('result-join').addEventListener('click', () => askName());
 $('name-close').addEventListener('click', () => showModal(nameModal, false));
 $('help-btn').addEventListener('click', () => showModal(helpModal, true));
 $('help-close').addEventListener('click', () => showModal(helpModal, false));
+$('cancel-restart').addEventListener('click', () => showModal(restartModal, false));
+$('confirm-restart').addEventListener('click', restartNow);
+$('pause-btn').addEventListener('click', togglePause);
+$('resume-btn').addEventListener('click', togglePause);
 $('guide-dismiss').addEventListener('click', () => { guide.dismiss(); updateGuide(); });
 for (const modal of [nameModal, helpModal]) modal.addEventListener('click', (e) => {
   if (e.target === modal) showModal(modal, false);
@@ -462,6 +525,7 @@ function rankRow(entry, isMe = false) {
 
 $('rank-btn').addEventListener('click', openRanks);
 $('over-rank').addEventListener('click', openRanks);
+$('paused-rank').addEventListener('click', openRanks);
 $('rank-close').addEventListener('click', () => showModal(rankModal, false));
 rankModal.addEventListener('click', (e) => {
   if (e.target === rankModal) showModal(rankModal, false);
@@ -501,34 +565,38 @@ const toWorld = (e) => {
 };
 
 let aiming = false;
+let activePointer = null;
 
 board.addEventListener('pointerdown', (e) => {
   sfx.unlock();
   if (e.isTrusted && e.pointerType === 'touch') enableHaptics();
-  if (game.over || modalOpen()) return;
+  if (game.over || game.paused || modalOpen()) return;
   const p = toWorld(e);
   if (game.clawMode) {
     game.useClawAt(p.x, p.y);
     return;
   }
   aiming = true;
+  activePointer = e.pointerId;
   board.setPointerCapture(e.pointerId);
   game.setAim(p.x);
 });
 
 board.addEventListener('pointermove', (e) => {
+  if (game.paused || game.over || modalOpen()) return;
   if (aiming || e.pointerType === 'mouse') game.setAim(toWorld(e).x);
 });
 
 board.addEventListener('pointerup', (e) => {
-  if (!aiming) return;
+  if (!aiming || e.pointerId !== activePointer || game.paused || modalOpen()) return;
   aiming = false;
+  activePointer = null;
   game.setAim(toWorld(e).x);
   game.requestDrop();
 });
 
 board.addEventListener('pointercancel', () => {
-  aiming = false;
+  clearInputs();
 });
 
 board.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -551,15 +619,25 @@ window.addEventListener('keydown', (e) => {
   }
   if (e.target.closest('input, textarea') ||
       (e.target.closest('button, a') && ['Space', 'Enter'].includes(e.code))) return;
+  if (e.code === 'KeyP') {
+    e.preventDefault();
+    if (!e.repeat) togglePause();
+    return;
+  }
+  if (e.code === 'KeyR') {
+    e.preventDefault();
+    if (!e.repeat) restart();
+    return;
+  }
+  if (game.paused) return;
   if (e.code === 'ArrowLeft' || e.code === 'KeyA' || e.code === 'ArrowRight' || e.code === 'KeyD') {
+    e.preventDefault();
     keys.add(e.code);
   } else if (e.code === 'Space' || e.code === 'ArrowDown' || e.code === 'Enter') {
     e.preventDefault();
     sfx.unlock();
     if (game.over) restart();
     else if (!e.repeat) game.requestDrop();
-  } else if (e.code === 'KeyR') {
-    restart();
   } else if (e.code === 'KeyC') {
     game.toggleClaw();
   }
@@ -590,8 +668,11 @@ function frame(now) {
 }
 
 document.addEventListener('visibilitychange', () => {
+  if (document.hidden) backgroundPause();
   last = performance.now();
 });
+window.addEventListener('blur', backgroundPause);
+window.addEventListener('pagehide', backgroundPause);
 window.addEventListener('resize', layout);
 new ResizeObserver(layout).observe(stage);
 

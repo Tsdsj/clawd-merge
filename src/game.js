@@ -101,6 +101,8 @@ export class Game {
   }
 
   reset() {
+    this.paused = false;
+    this.visualTime = 0;
     this.world.clear();
     this.score = 0;
     this.bestAtStart = this.best;
@@ -170,6 +172,7 @@ export class Game {
   }
 
   setAim(x) {
+    if (this.paused) return;
     this.aimX = clamp(x, 0, WORLD_W);
   }
 
@@ -180,12 +183,13 @@ export class Game {
 
   // Taps during the cooldown are queued so fast players don't lose inputs.
   requestDrop() {
-    if (this.over || this.clawMode) return;
+    if (this.paused || this.over || this.clawMode) return;
     if (this.cooldown > 0) this.pendingDrop = true;
     else this.drop();
   }
 
   drop() {
+    if (this.paused || this.over) return;
     const level = this.current;
     const crab = this.spawnCrab(level, this.clampAim(this.aimX, level), DROP_Y);
     crab.vy = 120;
@@ -224,8 +228,16 @@ export class Game {
     return crab;
   }
 
+  setPaused(paused) {
+    this.paused = paused;
+    this.pendingDrop = false;
+    this.acc = 0;
+  }
+
   update(dt) {
+    if (this.paused) return;
     dt = Math.min(dt, 0.1);
+    this.visualTime += dt;
     this.updateEffects(dt);
     if (this.over) return;
 
@@ -396,14 +408,14 @@ export class Game {
   // ---------- claw power-up ----------
 
   toggleClaw() {
-    if (this.over || (this.claws === 0 && !this.clawMode)) return;
+    if (this.paused || this.over || (this.claws === 0 && !this.clawMode)) return;
     this.clawMode = !this.clawMode;
     this.events.onClaws?.(this.claws, this.clawMode);
   }
 
   // Removes the Clawd under (x, y). Returns false if nothing was hit.
   useClawAt(x, y) {
-    if (!this.clawMode) return false;
+    if (this.paused || !this.clawMode) return false;
     let target = null;
     let best = Infinity;
     for (const b of this.world.bodies) {
@@ -609,7 +621,7 @@ export class Game {
   render() {
     const ctx = this.ctx;
     const k = this.scale * this.dpr;
-    const now = performance.now() / 1000;
+    const now = this.visualTime;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     if (this.bg?.width) ctx.drawImage(this.bg, 0, 0);
 
@@ -662,7 +674,7 @@ export class Game {
   }
 
   rainbowFrame() {
-    return Math.floor(performance.now() / 90) % RAINBOW_FRAMES;
+    return Math.floor(this.visualTime / 0.09) % RAINBOW_FRAMES;
   }
 
   drawCrab(ctx, crab) {
@@ -710,7 +722,7 @@ export class Game {
     ctx.stroke();
     ctx.restore();
 
-    const bob = Math.sin(performance.now() / 250) * 1.5;
+    const bob = Math.sin(this.visualTime / 0.25) * 1.5;
     const s = 0.6 + 0.4 * easeOutBack((t - 0.5) / 0.5);
     this.drawSprite(ctx, level, x, DROP_Y + bob, { sx: s, sy: s, frame: this.rainbowFrame() });
   }
@@ -719,7 +731,7 @@ export class Game {
     let color = 'rgba(217, 119, 87, 0.3)';
     if (this.warning === 1) color = 'rgba(255, 130, 100, 0.65)';
     if (this.warning === 2) {
-      const on = Math.sin(performance.now() / 70) > 0;
+      const on = Math.sin(this.visualTime / 0.07) > 0;
       color = `rgba(255, 72, 72, ${on ? 0.95 : 0.35})`;
     }
     ctx.save();

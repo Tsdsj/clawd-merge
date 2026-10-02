@@ -42,12 +42,16 @@
 | 瞄准 | 按住棋盘左右拖动 | 鼠标移动，或 ← / → (A / D) |
 | 投放 | 松手 | 点击，或 空格 / ↓ |
 | 钳子 | 点右上角钳子按钮，再点一只 Clawd | 同左，或按 C |
+| 暂停／继续 | 「暂停」「继续游戏」按钮 | 同左，或按 P |
 | 重开 | 「重新开始」按钮 | 同左，或按 R |
 
 - 两只**同级**的 Clawd 碰到一起，会合成为下一级。
 - 落稳的 Clawd 堆过红色虚线并停留 3 秒，游戏结束（警戒线下方会显示倒计时；被大合成炸飞、还在空中的 Clawd 不算）。
 - 只会掉落最小的 5 种 Clawd；越往后，大一点的掉得越多。
 - 手机横屏也能玩，还可以「添加到主屏幕」当 App 用。
+- 查看排行榜、账号、身份选择或玩法说明时游戏自动暂停；关闭后回到原状态，不会解除之前的手动暂停。
+- 进行中的对局切后台或窗口失焦后，返回需要点「继续游戏」；物理、危险倒计时、狂热与冷却均暂停，恢复不会自动补投。暂停不是存档，刷新或关闭页面仍不能恢复当前局。
+- 已有投放的未结束对局重开需确认，取消保留原局；空局或结束后可直接重开。本机最高分、图鉴和账号不会因重开清除。
 
 ## 11 只 Clawd
 
@@ -172,6 +176,7 @@ A Suika-style ("合成大西瓜") physics merge game starring Clawd, Claude's or
 
 - **Phone**: drag to aim, release to drop. **Desktop**: mouse or ← / →, click or Space to drop.
 - Two Clawds of the same level merge into the next level. If the settled pile stays above the red dashed line for 3 s (a countdown is shown; Clawds still flying after a big merge don't count), the game is over.
+- Press P or use Pause/Continue. Dialogs pause the game without overriding an existing manual pause. Returning from the background or window blur requires explicit continuation; queued inputs are cleared. Restarting an unfinished game with drops requires confirmation; empty or finished games restart directly. Pause does not save a game across reloads or page closure.
 - The 11 levels: Baby → Heart → Coffee → Glasses → Shades → Top hat → Skateboard → Cowboy → Ninja → Wizard → Big Clawd (crown). Every level has its own body colour; only the final Big Clawd wears the official Claude orange. A rare **Rainbow Clawd** upgrades whatever it touches.
 
 ## Mechanics
