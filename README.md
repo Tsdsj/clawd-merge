@@ -246,3 +246,9 @@ Add `?debug` to the URL to see collision shapes.
 Clawd is Anthropic's mascot for Claude Code. This is an unofficial fan game, **not affiliated with or endorsed by Anthropic**. Code is released under the [MIT](LICENSE) license. Thanks to the [LINUX DO](https://linux.do) community.
 
 M2 支持每日挑战结果的本地 PNG 分享卡及同题链接：旧题只练习，目标分不作为官方成绩证明。支持平台可调用系统分享，其他平台可保存图片或复制链接；详情见 [T11 验证记录](docs/verification/m2-t11.md)及 [M2 发布验收](docs/verification/m2-release.md)。
+
+## 舒适设置（T16a 已发布）
+
+点经典或每日的 **? → 舒适设置**。默认跟随系统，可选减弱或标准动效，独立控制震屏、装饰粒子和触控震动（默认关闭）。两种模式共用本机设置；设置不改变物理、计分、概率或成绩资格。保存失败时本页仍生效并提供重试，恢复默认可撤销，原音效开关保持独立。
+
+发布与验证见 [T16a 交付记录](docs/verification/m3-t16a.md)；手机实际震动、系统偏好和触控仍待用户真机验收。不把低特效宣称为已证实的性能提升。
