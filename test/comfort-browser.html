@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh-CN">
+  <meta charset="utf-8" /><meta
+    name="viewport"
+    content="width=device-width,initial-scale=1"
+  /><title>舒适设置 · 隔离浏览器验收</title
+  ><link rel="stylesheet" href="../src/comfort.css" /><style>
+    :root {
+      --font: system-ui, sans-serif;
+    }
+    body {
+      font: 15px/1.7 var(--font);
+      background: #101321;
+      color: #eee;
+      padding: 20px;
+    }
+    button {
+      font: inherit;
+      padding: 9px 16px;
+      margin: 4px;
+    }
+    main {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+    }
+    canvas {
+      max-width: 100%;
+      height: auto;
+    }
+    pre {
+      white-space: pre-wrap;
+    }
+    label {
+      margin: 12px;
+      display: inline-block;
+    }
+  </style>
+  <h1>真实 Canvas 与设置异常验收</h1>
+  <p>隔离测试：不读写真实偏好、成绩或存档，不访问 API，不发声或震动。</p>
+  <button id="run">运行两种效果的相同对局</button
+  ><label><input id="fail-write" type="checkbox" />模拟写入失败</label
+  ><label><input id="system-reduced" type="checkbox" />模拟系统减弱动态</label
+  ><button id="open">打开真实设置窗口</button>
+  <pre id="result" role="status">未运行</pre>
+  <pre id="prefs" role="status"></pre>
+  <main>
+    <section>
+      <h2>标准</h2>
+      <canvas id="normal"></canvas>
+    </section>
+    <section>
+      <h2>减弱</h2>
+      <canvas id="reduced"></canvas>
+    </section>
+  </main>
+  <script type="module" src="comfort-browser.mjs"></script>
+</html>
