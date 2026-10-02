@@ -18,6 +18,7 @@
     <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="stylesheet" href="src/style.css" />
+    <link rel="stylesheet" href="src/challenge.css" />
   </head>
   <body>
     <main class="app">
@@ -33,6 +34,7 @@
             </svg>
           </button>
         </div>
+        <nav class="mode-switch" aria-label="游戏模式"><button type="button" aria-pressed="true">经典模式</button><button type="button" id="daily-open" aria-pressed="false">每日挑战</button></nav>
         <div class="player-row">
           <button class="player-chip hidden" id="player-chip" aria-label="我的账号"></button>
           <p class="round-status" id="round-status" role="status">本地游玩 · 成绩仅保存在本机</p>
@@ -144,6 +146,107 @@
         </a>
       </p>
     </main>
+
+    <main class="daily-app hidden" id="daily-app" aria-label="每日挑战">
+      <header class="daily-header">
+        <div class="title-row">
+          <h1 class="title">合成大Clawd</h1>
+          <button class="icon-btn" id="daily-help" aria-label="每日挑战规则">?</button>
+        </div>
+        <nav class="mode-switch" aria-label="游戏模式">
+          <button id="daily-classic" aria-pressed="false">经典模式</button
+          ><button id="daily-tab" aria-pressed="true">每日挑战</button>
+        </nav>
+        <div class="daily-identity"><span id="daily-identity">本地练习</span><span>练习不限次数</span></div>
+      </header>
+      <section class="daily-scroll" id="daily-hub">
+        <p class="daily-eyebrow">同一个题目，同一串 Clawd</p>
+        <div class="daily-day">
+          <h2 id="daily-date" tabindex="-1"></h2>
+          <canvas id="daily-hero" aria-label="挑战 Clawd"></canvas>
+        </div>
+        <p class="daily-sub">本机北京时间题目 · 当前仅开放练习</p>
+        <div class="daily-stats">
+          <div>
+            <span>每局投放</span><strong>100 <small>次</small></strong>
+          </div>
+          <div><span>正式机会</span><strong class="daily-coming">尚未开放</strong></div>
+        </div>
+        <p class="daily-best">今日正式最好 <span>—</span></p>
+        <p class="daily-notice">
+          正式挑战与今日榜尚未开放。当前练习不扣机会、不参与排名；本机日期不代表服务器正式题目。
+        </p>
+        <div class="daily-resume hidden" id="daily-resume"></div>
+        <p class="daily-notice hidden" id="daily-hub-warning" role="status"></p>
+        <button class="btn daily-primary" id="daily-formal" disabled>正式挑战暂未开放</button>
+        <button class="btn daily-primary hidden" id="daily-resume-btn">继续上次挑战</button>
+        <button class="btn daily-primary" id="daily-practice">开始练习 · 不限次数</button>
+        <button class="link-btn hidden" id="daily-retry">重试读取／保存</button>
+        <p class="daily-retained" id="daily-classic-note"></p>
+      </section>
+      <section class="daily-play hidden" id="daily-play">
+        <div class="daily-round">
+          <span class="daily-badge">练习 · 不参与排名</span><span id="daily-round-day"></span
+          ><button class="link-btn" id="daily-home">返回入口</button>
+        </div>
+        <div class="daily-hud">
+          <div><span>本局分数</span><strong id="daily-score">0</strong></div>
+          <div>
+            <span>剩余投放</span><strong id="daily-remaining">100 <small>/ 100</small></strong>
+          </div>
+          <div class="daily-next">
+            <span id="daily-next-label">下一个</span><canvas id="daily-next"></canvas>
+          </div>
+        </div>
+        <p class="daily-midnight hidden" id="daily-midnight"></p>
+        <div class="daily-stage" id="daily-stage">
+          <div class="board" id="daily-board" tabindex="0" aria-label="挑战棋盘，左右方向键瞄准，空格投放">
+            <canvas id="daily-canvas"></canvas>
+            <div class="daily-settling hidden" id="daily-settling" role="status">
+              <b id="daily-settle-time"></b>
+              <p>已投完 100 次。停止投放与道具操作，落稳后提前结算。</p>
+            </div>
+            <div class="pause-cover hidden" id="daily-paused">
+              <div class="pause-panel">
+                <h2>已暂停</h2>
+                <p id="daily-pause-copy">准备好了，再继续。</p>
+                <button class="btn" id="daily-continue">继续练习</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="daily-actions">
+          <button class="btn ghost" id="daily-claw">钳子 ×0</button
+          ><button class="btn ghost" id="daily-pause">暂停</button
+          ><button class="btn ghost" id="daily-restart">新开一局</button
+          ><button class="icon-btn" id="daily-sound" aria-label="挑战音效开关">音</button>
+        </div>
+        <div class="daily-save">
+          <span id="daily-save-status" role="status"></span
+          ><button class="link-btn hidden" id="daily-save-retry">重试保存</button>
+        </div>
+      </section>
+      <section class="daily-scroll daily-result hidden" id="daily-result">
+        <span class="daily-badge">练习完成 · 不参与排名</span>
+        <p class="daily-sub" id="daily-result-day"></p>
+        <h2 id="daily-final">0</h2>
+        <p class="daily-sub" id="daily-final-detail"></p>
+        <div class="daily-result-status">
+          <b>只记录本次练习</b>
+          <p>练习不消耗正式机会，也不会写入经典成绩或今日榜。</p>
+          <p id="daily-result-save"></p>
+          <button class="link-btn hidden" id="daily-result-retry">重试保存结果</button>
+        </div>
+        <button class="btn daily-primary" id="daily-again">再练一次同一道题</button
+        ><button class="btn ghost daily-primary" id="daily-result-home">返回每日入口</button
+        ><button class="link-btn" id="daily-result-classic">继续经典模式</button>
+      </section>
+    </main>
+    <dialog class="daily-dialog" id="daily-dialog" aria-labelledby="daily-dialog-title">
+      <h2 id="daily-dialog-title"></h2>
+      <p id="daily-dialog-copy"></p>
+      <div id="daily-dialog-actions"></div>
+    </dialog>
 
     <div class="modal hidden" id="name-modal" role="dialog" aria-modal="true" aria-labelledby="name-title">
       <form class="sheet" id="name-form" autocomplete="off" novalidate>

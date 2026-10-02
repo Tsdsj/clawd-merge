@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>T09 · 每日挑战原型</title>
+    <link rel="stylesheet" href="../../../src/style.css" />
+    <link rel="stylesheet" href="./prototype.css" />
+  </head>
+  <body>
+    <header class="review">
+      <div>
+        <strong>T09 · 每日挑战</strong>
+        <p>可点击设计原型 · 所有成绩、机会与网络状态均为模拟，不保存或上传</p>
+      </div>
+      <div class="review-controls">
+        <label
+          >状态<select id="scenario">
+            <option value="hub">每日入口</option>
+            <option value="classic">经典模式</option>
+            <option value="playing">正式对局</option>
+            <option value="practice">练习对局</option>
+            <option value="settling">最后一投后结算</option>
+            <option value="result">正式结果</option>
+            <option value="pending">断网待提交</option>
+            <option value="exhausted">今日机会用完</option>
+            <option value="resume">恢复未完成挑战</option>
+            <option value="restore-offline">恢复核验失败</option>
+            <option value="midnight">旧题跨日进行中</option>
+            <option value="expired">超过提交截止</option>
+            <option value="loading">正在获取今日题目</option>
+            <option value="error">获取失败，有缓存题</option>
+            <option value="no-cache">获取失败，无缓存题</option>
+          </select></label
+        >
+        <label
+          >身份<select id="identity">
+            <option value="guest">游客 · 橙色钳子 #4821</option>
+            <option value="linuxdo">LINUX DO · fucdd</option>
+            <option value="none">尚未创建身份</option>
+          </select></label
+        >
+        <label class="wire"><input type="checkbox" id="wire" /> 线框视图</label>
+      </div>
+      <details>
+        <summary>查看流程与设计重点</summary>
+        <p>
+          经典局保留 ⇄ 每日入口 → 开局确认 → 正式／练习对局 → 最多 8 秒结算 →
+          独立结果。挑战剩余投放与资格始终可见；正式与练习不混榜。恢复失败和跨日状态不悄悄改变资格。
+        </p>
+      </details>
+    </header>
+    <main class="prototype-app">
+      <header class="product-header">
+        <div class="title-row">
+          <h1 class="title">合成大Clawd</h1>
+          <button class="icon-btn" id="help" aria-label="挑战玩法说明">?</button>
+        </div>
+        <nav class="mode-switch" aria-label="选择游戏模式">
+          <button id="classic-mode" aria-pressed="false">经典模式</button
+          ><button id="daily-mode" aria-pressed="true">每日挑战</button>
+        </nav>
+        <div class="identity-row">
+          <span id="identity-label">游客 · 橙色钳子 #4821</span
+          ><button class="link-btn" id="rules">挑战规则</button>
+        </div>
+      </header>
+      <section id="hub" class="hub">
+        <div class="eyebrow">大家玩同一道题</div>
+        <div class="day-title">
+          <h2>10 月 02 日</h2>
+          <canvas id="hero-crab" aria-label="今日挑战 Clawd"></canvas>
+        </div>
+        <p class="sub" id="day-copy">北京时间 00:00 换题 · 今日题目已就绪</p>
+        <div class="stats">
+          <div>
+            <span>每局投放</span><strong>100 <small>次</small></strong>
+          </div>
+          <div>
+            <span>今日正式机会</span><strong id="attempts">3 <small>/ 3 次</small></strong>
+          </div>
+        </div>
+        <div class="best-row"><span>今日最好</span><strong id="daily-best">还没有正式成绩</strong></div>
+        <div class="notice hidden" id="notice" role="status"></div>
+        <div id="resume-card" class="resume-card hidden">
+          <b>有一局正式挑战还没结束</b>
+          <p>2,864 分 · 剩余 37 投 · 今日第 1 次</p>
+          <p class="sub">继续原局不再扣机会。</p>
+        </div>
+        <button class="btn primary" id="start-formal">开始正式挑战</button>
+        <button class="btn ghost primary" id="start-practice">先练一局 · 不限次数</button>
+        <p class="fine" id="entry-note">领取开局凭证后消耗 1 次；刷新续玩不再扣次。</p>
+        <p class="retained">
+          经典局已保留 · 1,282 分 <button class="link-btn" id="return-classic">继续经典</button>
+        </p>
+      </section>
+      <section id="game-panel" class="hidden">
+        <div class="round-line">
+          <span id="round-kind" class="challenge-badge">正式 · 第 1 次</span
+          ><span id="round-day">10 月 02 日</span
+          ><button class="link-btn" id="return-hub">返回每日入口</button>
+        </div>
+        <div class="game-hud">
+          <div><span class="sub">本局分数</span><strong id="score">2,864</strong></div>
+          <div class="remaining">
+            <span class="sub" id="remaining-label">剩余投放</span
+            ><strong id="remaining">37 <small>/ 100</small></strong>
+          </div>
+          <div class="next"><span class="sub">下一个</span><canvas id="next"></canvas></div>
+        </div>
+        <div class="notice hidden" id="game-note" role="status"></div>
+        <div class="board" id="board" tabindex="0" role="button" aria-label="原型棋盘，点击或按空格模拟投放">
+          <canvas id="scene" width="400" height="640"></canvas>
+          <div id="board-overlay" class="board-overlay hidden">
+            <strong id="overlay-title"></strong>
+            <p id="overlay-copy"></p>
+          </div>
+        </div>
+        <div class="game-actions">
+          <button class="btn ghost" id="claw">钳子 ×1</button
+          ><button class="btn ghost" id="pause">暂停</button
+          ><button class="btn ghost" id="restart">新开一局</button>
+        </div>
+        <p class="fine" id="save-status">当前挑战已自动保存；经典局仍保留。</p>
+      </section>
+      <section id="result-panel" class="hidden result-panel">
+        <span class="challenge-badge" id="result-kind">正式挑战完成</span>
+        <p class="sub">10 月 02 日 · 每日挑战</p>
+        <h2 id="result-score">9,764</h2>
+        <p id="result-detail" class="sub">100 / 100 投 · 最高合成：魔法Clawd</p>
+        <div id="result-status" class="result-status">
+          <b>已计入今日成绩</b>
+          <p>今日个人最好 9,764 · 当前排名 #12</p>
+        </div>
+        <button class="btn primary" id="result-primary">再挑战一次 · 还剩 2 次</button>
+        <button class="btn ghost primary" id="result-practice">练习这道题</button>
+        <button class="link-btn" id="result-ranking">查看今日榜</button>
+        <button class="link-btn" id="result-back">返回每日入口</button>
+      </section>
+      <footer class="prototype-footer">
+        本原型中的正式资格与榜单仅作演示。<br />产品默认仍进入经典模式，挑战从模式切换进入。
+      </footer>
+    </main>
+    <aside class="demo-tools" aria-label="原型演示控制">
+      <span>演示控制</span><button id="last-drop">跳到最后 1 投</button
+      ><button id="settled">模拟提前落稳</button><button id="danger">模拟危险线结束</button>
+    </aside>
+    <dialog id="dialog" class="dialog" aria-labelledby="dialog-title">
+      <button class="dialog-close icon-btn" aria-label="关闭" id="close-dialog">×</button>
+      <h2 id="dialog-title"></h2>
+      <div id="dialog-copy"></div>
+      <label id="name-field" class="hidden"
+        >游客名字<input id="guest-name" maxlength="12" value="橙色钳子"
+      /></label>
+      <div id="dialog-actions"></div>
+    </dialog>
+    <script type="module" src="./prototype.js"></script>
+  </body>
+</html>

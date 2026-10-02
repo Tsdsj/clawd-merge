@@ -8,6 +8,7 @@ import { createSaveFlow } from './save-flow.js';
 import { getStorage } from './storage.js';
 import { Outbox } from './outbox.js';
 import { createUploadUI } from './upload-ui.js';
+import { createChallengeUI } from './challenge-ui.js';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -23,6 +24,7 @@ const guide = createGuide(getStorage(), Boolean(leaderboard.player));
 let roundVersion = 0;
 const pauses = new PauseState(syncPause);
 let saves;
+let daily;
 let outbox, uploads;
 
 function updateGuide() {
@@ -150,7 +152,7 @@ function clearInputs() {
 
 function syncPause() {
   clearInputs();
-  game.setPaused(!game.over && pauses.paused);
+  game.setPaused(!game.over && (pauses.paused || Boolean(daily?.active)));
   last = performance.now();
   document.body.classList.toggle('game-paused', game.paused);
   const showCover = !game.over && !saves?.blocked && (pauses.has('manual') || pauses.has('background'));
@@ -213,6 +215,7 @@ const modalOpen = () => document.body.classList.contains('modal-open');
 const modalFocus = new WeakMap();
 
 function showModal(modal, open) {
+  if(open && daily?.active && modal===restoreModal)return;
   if (modal === restoreModal && !open) saves?.invalidateOffer();
   if (open) modalFocus.set(modal, document.activeElement);
   modal.classList.toggle('hidden', !open);
@@ -645,6 +648,7 @@ document.addEventListener('gesturestart', (e) => e.preventDefault());
 
 const keys = new Set();
 window.addEventListener('keydown', (e) => {
+  if (daily?.active) return;
   if (modalOpen()) {
     const active = modals.find((m) => !m.classList.contains('hidden'));
     if (e.code === 'Escape') showModal(active, false);
@@ -699,6 +703,7 @@ soundBtn.addEventListener('click', () => soundBtn.classList.toggle('muted', !sfx
 let last = performance.now();
 function frame(now) {
   requestAnimationFrame(frame);
+  if (daily?.active) { daily.frame(now);last=now;return; }
   const dt = (now - last) / 1000;
   last = now;
   const dir = (keys.has('ArrowRight') || keys.has('KeyD') ? 1 : 0) - (keys.has('ArrowLeft') || keys.has('KeyA') ? 1 : 0);
@@ -758,6 +763,16 @@ window.addEventListener('storage',event=>{
 window.addEventListener('online',()=>outbox.wakeOnline());
 window.addEventListener('pagehide',()=>outbox.stop());
 window.addEventListener('pageshow',event=>{if(event.persisted)outbox.start();});
+daily=createChallengeUI({scope:leaderboard.saveScope,identity:()=>leaderboard.player?displayName(leaderboard.player):'',
+  classicSummary:()=>game.drops&&!game.over?`经典局仍保留 · ${game.score} 分，可随时切回继续。`:'经典模式与挑战使用独立存档。',
+  onEnter(){
+    if(modalOpen())return false;
+    if(game.drops&&!game.over&&!saves.blocked&&!saves.flush()&&!saves.temporary){saves.show();toast('请先处理经典局保存失败，再切换模式。');return false;}
+    pauses.set('mode',true);clearInputs();document.querySelector('.app').classList.add('hidden');return true;
+  },
+  onExit(){document.querySelector('.app').classList.remove('hidden');pauses.set('mode',false);syncPause();layout();board.focus({preventScroll:true});soundBtn.classList.toggle('muted',!sfx.enabled);if(saves.blocked)saves.show();},
+});
+$('daily-open').onclick=()=>void daily.open();
 requestAnimationFrame(frame);
 initAccount();
 void saves.initialize().then(()=>outbox.start());

@@ -220,6 +220,7 @@ export function createSaveFlow({ game, leaderboard, pauses, showModal, onNew, on
   return {
     store, initialize, flush, newGame,
     get roundId() { return roundId; },
+    get temporary() { return temporary; },
     get blocked() { return state!=='active'; },
     get canSubmit() { return state==='active' && (store.owned || temporary); },
     get restored() { return Boolean(record && roundId===record.roundId); },

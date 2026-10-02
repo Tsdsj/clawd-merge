@@ -1,6 +1,7 @@
 import { World, Body } from './physics.js';
 import { captureGame, restoreGame } from './game-state.js';
 import { GameplayRandom } from './random.js';
+import { challengeSequence, SETTLE_SECONDS, STABLE_SECONDS } from './challenge.js';
 import { chooseClassicLevel } from './drop-sequence.js';
 import { RULES, DROP_COOLDOWN, COMBO_WINDOW, FEVER_MAX, FEVER_TIME, CLAW_LEVEL, MAX_CLAWS, KING_BONUS } from './rules.js';
 export { RULES } from './rules.js';
@@ -68,17 +69,20 @@ function loadSeen() {
 }
 
 export class Game {
-  constructor(canvas, events = {}, { seed } = {}) {
+  constructor(canvas, events = {}, { seed, challenge = null } = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.events = events;
     this.gameplayRandom = new GameplayRandom(seed);
+    this.challengeDefinition = challenge ? Object.freeze({ challengeId: challenge.challengeId, rulesVersion: challenge.rulesVersion, count: challenge.count }) : null;
+    this.dropSequence = challenge ? challengeSequence(this.challengeDefinition) : null;
+    this.persistPreferences = !challenge;
     this.world = new World({ width: WORLD_W, height: WORLD_H, gravity: 1800 });
     this.scale = 1;
     this.dpr = 1;
     this.debug = false;
-    this.best = Number(readPreference(BEST_KEY)) || 0;
-    this.seen = loadSeen();
+    this.best = this.persistPreferences ? Number(readPreference(BEST_KEY)) || 0 : 0;
+    this.seen = this.persistPreferences ? loadSeen() : new Set([1]);
     this.reset();
   }
 
@@ -93,8 +97,9 @@ export class Game {
     this.acc = 0;
     this.drops = 0;
     this.maxLevel = 1;
-    this.current = 1;
-    this.next = this.randomLevel();
+    this.challenge = this.challengeDefinition ? { ...this.challengeDefinition, phase: 'playing', settlingTime: 0, stableTime: 0, reason: null } : null;
+    this.current = this.dropSequence?.[0] ?? 1;
+    this.next = this.dropSequence ? this.dropSequence[1] : this.randomLevel();
     this.aimX = WORLD_W / 2;
     this.cooldown = 0;
     this.pendingDrop = false;
@@ -126,9 +131,12 @@ export class Game {
   snapshot() { return captureGame(this); }
   restore(state) {
     restoreGame(this,state);
+    if (!this.persistPreferences) return;
     if(!writePreference(BEST_KEY,String(this.best)))this.persistenceWarning=true;
     if(!writePreference(SEEN_KEY,JSON.stringify([...this.seen])))this.persistenceWarning=true;
   }
+
+  get settling() { return this.challenge?.phase === 'settling'; }
 
   // Early on only the tiniest Clawds drop; bigger ones unlock as you progress.
   randomLevel() {
@@ -158,19 +166,20 @@ export class Game {
 
   // Taps during the cooldown are queued so fast players don't lose inputs.
   requestDrop() {
-    if (this.paused || this.over || this.clawMode) return;
+    if (this.paused || this.over || this.clawMode || this.settling) return;
     if (this.cooldown > 0) this.pendingDrop = true;
     else this.drop();
   }
 
   drop() {
-    if (this.paused || this.over) return;
+    if (this.paused || this.over || this.settling) return;
     const level = this.current;
     const crab = this.spawnCrab(level, this.clampAim(this.aimX, level), DROP_Y);
     crab.vy = 120;
     this.drops++;
-    this.current = this.next;
-    this.next = this.randomLevel();
+    this.current = this.dropSequence ? this.dropSequence[this.drops] ?? null : this.next;
+    this.next = this.dropSequence ? this.dropSequence[this.drops + 1] ?? null : this.randomLevel();
+    if (this.challenge && this.drops === this.challenge.count) { this.challenge.phase = 'settling'; this.clawMode = false; }
     this.cooldown = DROP_COOLDOWN;
     this.pendingDrop = false;
     sfx.drop();
@@ -216,6 +225,7 @@ export class Game {
     this.updateEffects(dt);
     if (this.over) return;
 
+    const settlingAtStart = this.settling;
     this.acc += dt;
     let steps = 0;
     while (this.acc >= STEP && steps < MAX_STEPS) {
@@ -237,6 +247,13 @@ export class Game {
       if (this.feverTime === 0) this.events.onFever?.(false);
     }
     this.checkDanger(dt);
+    if (settlingAtStart && this.settling && !this.over) {
+      this.pendingDrop = false;
+      this.challenge.settlingTime = Math.min(SETTLE_SECONDS, this.challenge.settlingTime + dt);
+      const stable = this.world.bodies.every(b => b.sleeping) && this.time - this.lastMergeAt >= dt;
+      this.challenge.stableTime = stable ? Math.min(STABLE_SECONDS, this.challenge.stableTime + dt) : 0;
+      if (this.challenge.stableTime >= STABLE_SECONDS || this.challenge.settlingTime >= SETTLE_SECONDS) this.gameOver('limit');
+    }
   }
 
   // Squash & dust when a Clawd lands hard.
@@ -360,7 +377,7 @@ export class Game {
     this.score += points;
     if (this.score > this.best) {
       this.best = this.score;
-      if(!writePreference(BEST_KEY, String(this.best)))this.persistenceWarning=true;
+      if(this.persistPreferences && !writePreference(BEST_KEY, String(this.best)))this.persistenceWarning=true;
     }
     this.floatText(`+${points}`, x, y - 10, 16, this.fever ? '#FFD84D' : '#FFFFFF', 0.9);
     if (!this.recordShown && this.bestAtStart > 0 && this.score > this.bestAtStart) {
@@ -374,7 +391,7 @@ export class Game {
 
   discover(level) {
     this.seen.add(level);
-    if(!writePreference(SEEN_KEY, JSON.stringify([...this.seen])))this.persistenceWarning=true;
+    if(this.persistPreferences && !writePreference(SEEN_KEY, JSON.stringify([...this.seen])))this.persistenceWarning=true;
     this.card = { level, t: 0, dur: 2.2 };
     sfx.discover();
     this.events.onDiscover?.(this.seen);
@@ -383,14 +400,14 @@ export class Game {
   // ---------- claw power-up ----------
 
   toggleClaw() {
-    if (this.paused || this.over || (this.claws === 0 && !this.clawMode)) return;
+    if (this.paused || this.over || this.settling || (this.claws === 0 && !this.clawMode)) return;
     this.clawMode = !this.clawMode;
     this.events.onClaws?.(this.claws, this.clawMode);
   }
 
   // Removes the Clawd under (x, y). Returns false if nothing was hit.
   useClawAt(x, y) {
-    if (this.paused || !this.clawMode) return false;
+    if (this.paused || this.over || this.settling || !this.clawMode) return false;
     let target = null;
     let best = Infinity;
     for (const b of this.world.bodies) {
@@ -462,7 +479,9 @@ export class Game {
     return supported;
   }
 
-  gameOver() {
+  gameOver(reason = 'danger') {
+    if (this.over) return;
+    if (this.challenge) { this.challenge.phase = 'finished'; this.challenge.reason = reason; this.danger = Math.min(this.danger, RULES.gameOverTime); }
     this.over = true;
     this.warning = 0;
     this.clawMode = false;
@@ -609,7 +628,7 @@ export class Game {
       ctx.fillRect(-20, -20, WORLD_W + 40, WORLD_H + 40);
     }
     this.drawDangerLine(ctx);
-    if (!this.over && !this.clawMode) this.drawAim(ctx);
+    if (!this.over && !this.clawMode && !this.settling) this.drawAim(ctx);
     for (const crab of this.world.bodies) this.drawCrab(ctx, crab);
     if (this.debug) this.drawHitboxes(ctx);
     this.drawRings(ctx);

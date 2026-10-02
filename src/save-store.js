@@ -21,6 +21,7 @@ export class SaveStore {
     }
     if(r.online!==null && (!r.online || typeof r.online.playerId!=='string' ||
       (r.online.sessionId!==null && typeof r.online.sessionId!=='string')))throw new Error('invalid_ticket');
+    if(r.game?.challenge)throw new Error('wrong_save_mode');
     validateGameState(r.game);return r;
   }
   record(roundId, game, online) {

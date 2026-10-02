@@ -1,12 +1,13 @@
 import { World } from './physics.js';
 import { GameplayRandom } from './random.js';
+import { validateChallenge } from './challenge.js';
 export { CLASSIC_RULES_VERSION as RULES_VERSION } from './rules.js';
 
 export const SCHEMA_VERSION = 1;
 const fields = ['score','bestAtStart','recordShown','time','visualTime','drops','maxLevel','current','next',
   'aimX','cooldown','danger','warning','combo','feverMeter','feverTime','claws'];
 const bodyFields = ['level','x','y','angle','vx','vy','w','sleeping','stillTime','restX','restY','restAngle','born','landedFor'];
-const pick = (object, keys) => Object.fromEntries(keys.map(k => [k, object[k] ?? (k === 'landedFor' ? 0 : undefined)]));
+const pick = (object, keys) => Object.fromEntries(keys.map(k => [k, object[k] !== undefined ? object[k] : (k === 'landedFor' ? 0 : undefined)]));
 const number = (n, lo, hi, integer = false) => typeof n === 'number' && Number.isFinite(n) && n >= lo && n <= hi && (!integer || Number.isInteger(n));
 function requireValue(ok) { if (!ok) throw new Error('invalid_snapshot'); }
 
@@ -16,7 +17,8 @@ export function validateGameState(s) {
   for (const key of ['score','bestAtStart','drops','combo']) requireValue(number(s[key],0,1e9,true));
   for (const key of ['time','visualTime']) requireValue(number(s[key],0,1e9));
   requireValue(typeof s.recordShown === 'boolean');
-  for (const key of ['current','next']) requireValue(number(s[key],0,5,true));
+  if (Object.hasOwn(s, 'challenge')) validateChallenge(s.challenge, s.drops, s.current, s.next);
+  else for (const key of ['current','next']) requireValue(number(s[key],0,5,true));
   requireValue(number(s.maxLevel,1,11,true) && number(s.claws,0,3,true));
   requireValue(number(s.aimX,0,400) && number(s.cooldown,0,0.5));
   requireValue(number(s.danger,0,3) && number(s.warning,0,2,true));
@@ -45,12 +47,14 @@ export function captureGame(g) {
   const contacts = g.world.contacts.filter(c => (c.a === g.world.wall || indexes.has(c.a)) && indexes.has(c.b))
     .map(c => ({ a: c.a === g.world.wall ? -1 : indexes.get(c.a), b:indexes.get(c.b),
       ...pick(c,['ia','ib','nx','ny','pen','px','py','Pn','Pt']) }));
-  return validateGameState({ ...pick(g,fields), gameplayRandom:g.gameplayRandom.snapshot(), lastMergeAt: Number.isFinite(g.lastMergeAt) ? g.lastMergeAt : null,
+  return validateGameState({ ...pick(g,fields), ...(g.challenge ? { challenge: { ...g.challenge } } : {}), gameplayRandom:g.gameplayRandom.snapshot(), lastMergeAt: Number.isFinite(g.lastMergeAt) ? g.lastMergeAt : null,
     seen:[...g.seen], bodies:g.world.bodies.map(b => pick(b,bodyFields)), contacts });
 }
 
 export function restoreGame(g, state) {
   validateGameState(state);
+  requireValue(Boolean(state.challenge) === Boolean(g.challengeDefinition));
+  if (state.challenge) requireValue(['challengeId','rulesVersion','count'].every(k => state.challenge[k] === g.challengeDefinition[k]));
   const gameplayRandom = Object.hasOwn(state, 'gameplayRandom')
     ? GameplayRandom.fromSnapshot(state.gameplayRandom) : g.gameplayRandom;
   const world = new World({ width:400,height:640,gravity:1800 });
@@ -69,9 +73,10 @@ export function restoreGame(g, state) {
   }
   // No callbacks or durable writes before validation and reconstruction succeed.
   g.world = world; g.gameplayRandom = gameplayRandom; Object.assign(g,pick(state,fields));
+  if (state.challenge) g.challenge = { ...state.challenge };
   g.lastMergeAt = state.lastMergeAt ?? -Infinity;
   g.best = Math.max(g.best,state.score,state.bestAtStart);
   for (const level of state.seen) g.seen.add(level);
-  g.acc=0; g.pendingDrop=false; g.paused=true; g.over=false; g.clawMode=false;
+  g.acc=0; g.pendingDrop=false; g.paused=true; g.over=state.challenge?.phase === 'finished'; g.clawMode=false;
   g.particles=[];g.texts=[];g.rings=[];g.card=null;g.shake=0;
 }
