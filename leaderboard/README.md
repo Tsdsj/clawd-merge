@@ -103,7 +103,7 @@ npx wrangler deploy
 
 ## 本地开发与测试
 
-不需要 Cloudflare 账号：测试和本地 API 用 Node 自带的 SQLite 模拟 D1（需要 Node 22.5+），本地 API 还自带一个**假的 LINUX DO 授权页**。
+不需要 Cloudflare 账号：测试和本地 API 用 Node 自带的 SQLite 模拟 D1（需要 Node 22.13+），本地 API 还自带一个**假的 LINUX DO 授权页**。
 
 ```bash
 npm test          # 在仓库根目录运行接口测试（包括完整的 L 站登录流程）

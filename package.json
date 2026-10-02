@@ -12,9 +12,11 @@
     "dev": "node serve.mjs",
     "test": "node --test 'leaderboard/test/*.test.mjs' 'test/*.test.mjs'",
     "lb:dev": "node leaderboard/test/dev-server.mjs",
-    "icons": "node scripts/make-icons.mjs"
+    "icons": "node scripts/make-icons.mjs",
+    "test:http": "node test/upload-timeout.integration.mjs",
+    "test:d1": "node leaderboard/test/d1-receipts.integration.mjs"
   },
   "engines": {
-    "node": ">=22.5"
+    "node": ">=22.13"
   }
 }

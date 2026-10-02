@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Clawd 本地性能基线</title>
+<style>
+body{margin:20px;background:#17181d;color:#eee;font:15px system-ui}main{max-width:900px;margin:auto}button{padding:12px 18px;font:inherit}canvas{display:block;max-width:100%;margin:16px 0}pre{white-space:pre-wrap;overflow-wrap:anywhere}p{line-height:1.6}
+</style>
+<main><h1>本地性能基线</h1>
+<p>固定随机种子和 1/60 秒模拟步长。每场景预热 60 帧、采样 300 帧。仅测本页 Game.update/render，不接入排行榜或存档；声音关闭。合成与满盘为合成负载，不能代表手机实测或整页 FPS。</p>
+<button id="run">运行三种场景</button><p id="status" role="status">等待运行</p>
+<canvas id="game"></canvas><pre id="result"></pre></main>
+<script type="module" src="./performance.mjs"></script>
+</html>

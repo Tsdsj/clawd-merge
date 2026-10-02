@@ -112,7 +112,7 @@
 
 ## 本地运行
 
-需要 Node 22.5+，**不用 `npm install`**。
+需要 Node 22.13+，**不用 `npm install`**。
 
 ```bash
 npm start
@@ -123,13 +123,18 @@ npm start
 | 命令 / 地址 | 作用 |
 | --- | --- |
 | `?debug` | 在网址后加上，显示每只 Clawd 的碰撞体 |
-| `npm test` | 运行排行榜接口与客户端安全回归测试 |
+| `npm test` | 运行核心玩法、排行榜接口与客户端可靠性回归测试 |
+| `npm run test:http` | 真实请求超时集成检查（约 16 秒） |
+| `MINIFLARE_MODULE=/path/to/miniflare npm run test:d1` | 使用独立安装的 Miniflare 做本地 workerd/D1 集成检查 |
+| `/test/performance.html` | 固定种子的浏览器 Canvas 性能测量页，不上传成绩 |
 | `npm run lb:dev` | 启动本地排行榜 API（D1 用 Node 自带 SQLite 模拟），配合 `?api=http://localhost:8787` 使用 |
 | `npm run icons` | 重新生成主屏幕图标 |
 
 `?api=` 仅在 `localhost`、`127.0.0.1` 或 `[::1]` 页面生效，目标必须是这些 loopback 主机的 HTTP(S) origin（可以带端口，不能带账号密码、路径、查询或 fragment）。线上和局域网 IP 页面忽略该参数，使用配置的 API。局域网手机访问仍可游玩，但不能通过参数切换到本地 API。
 
 本地调试身份按 API 地址隔离，不读取旧的共享身份键；升级后本地调试需要重新登录或注册。线上现有登录保持兼容。
+
+自动回归由 `.github/workflows/ci.yml` 执行；本地证据与未关闭的发布检查见 [M1 / T07 检查报告](docs/verification/m1-t07.md)。
 
 ## 部署
 
@@ -213,8 +218,8 @@ Start playing immediately without an account. A dismissible first-run guide expl
 ## Run locally
 
 ```bash
-npm start        # http://localhost:5173  (Node 22.5+, no npm install)
-npm test         # leaderboard API tests
+npm start        # http://localhost:5173  (Node 22.13+, no npm install)
+npm test         # gameplay and leaderboard regression tests
 npm run lb:dev   # local leaderboard API → open the game with ?api=http://localhost:8787
 ```
 
