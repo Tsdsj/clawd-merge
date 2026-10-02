@@ -155,6 +155,69 @@ test('score flow: best score, rank and leaderboard order', async () => {
   assert.equal(me.data.games, 1);
 });
 
+// Hold one request immediately before its score transaction. A second device
+// commits while the first still holds the player snapshot read at authentication.
+for (const scenario of [
+  { name: 'higher score commits first', delayed: 300, other: 600, initial: 0, improved: false },
+  { name: 'lower score commits first', delayed: 600, other: 300, initial: 0, improved: true },
+  { name: 'equal score preserves the first committed record', delayed: 600, other: 600, initial: 0, improved: false },
+  { name: 'non-improving submission returns the current best', delayed: 100, other: 800, initial: 500, improved: false },
+]) {
+  test(`concurrent devices: ${scenario.name}`, { timeout: 5000 }, async (t) => {
+    const a = await linuxdoLogin({ id: 12345, username: 'race_player' });
+    const b = await linuxdoLogin({ id: 12345, username: 'race_player' });
+    assert.notEqual(a.token, b.token);
+    if (scenario.initial) await play(a.token, { score: scenario.initial, drops: 1 });
+    const sessionA = (await call('POST', '/api/session', { token: a.token })).data.sessionId;
+    const sessionB = (await call('POST', '/api/session', { token: b.token })).data.sessionId;
+    let signalHeld;
+    let release;
+    const held = new Promise((resolve) => { signalHeld = resolve; });
+    const gate = new Promise((resolve) => { release = resolve; });
+    const batch = env.DB.batch.bind(env.DB);
+    let intercepted = false;
+    t.mock.method(env.DB, 'batch', async (statements) => {
+      if (!intercepted && statements.some((s) => s.sql.includes('INSERT INTO scores'))) {
+        intercepted = true;
+        signalHeld();
+        await gate;
+      }
+      return batch(statements);
+    });
+    let now = Date.now();
+    t.mock.method(Date, 'now', () => now);
+    const delayedAt = now;
+    const pending = call('POST', '/api/score', { token: a.token,
+      body: { sessionId: sessionA, score: scenario.delayed, drops: 1, maxLevel: 5 } });
+    let first;
+    try {
+      await held;
+      now += 100;
+      first = await call('POST', '/api/score', { token: b.token,
+        body: { sessionId: sessionB, score: scenario.other, drops: 1, maxLevel: 8 } });
+    } finally {
+      release();
+    }
+    const delayed = await pending;
+    assert.equal(first.status, 200);
+    assert.equal(delayed.status, 200);
+    const expectedBest = Math.max(scenario.delayed, scenario.other);
+    assert.deepEqual(delayed.data, { improved: scenario.improved, best: expectedBest, rank: 1 });
+    const best = await env.DB.prepare('SELECT best_score, best_level, best_at, games FROM players WHERE id = ?').bind(a.player.id).first();
+    assert.deepEqual({ ...best }, {
+      best_score: expectedBest,
+      best_level: scenario.improved ? 5 : 8,
+      best_at: scenario.improved ? delayedAt : now,
+      games: scenario.initial ? 3 : 2,
+    });
+    const { n } = await env.DB.prepare('SELECT COUNT(*) AS n FROM scores WHERE player_id = ?').bind(a.player.id).first();
+    assert.equal(n, best.games);
+    const board = await call('GET', '/api/leaderboard');
+    assert.equal(board.data.entries[0].score, expectedBest);
+    assert.equal(board.data.entries[0].level, best.best_level);
+  });
+}
+
 test('sessions are single-use and required', async () => {
   const a = await register('玩家一');
   const { data } = await call('POST', '/api/session', { token: a.token });

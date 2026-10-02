@@ -400,26 +400,22 @@ async function submitScore(request, env) {
     throw new ApiError(422, 'implausible', '成绩异常：分数和投放次数对不上');
   }
 
-  const improved = score > player.best_score;
   const statements = [
     env.DB.prepare(
       'INSERT INTO scores (player_id, score, max_level, drops, duration_ms, created_at) VALUES (?, ?, ?, ?, ?, ?)',
     ).bind(player.id, score, maxLevel, drops, elapsed, now),
     env.DB.prepare('UPDATE players SET games = games + 1 WHERE id = ?').bind(player.id),
+    // Authentication read a snapshot: another device may have improved it since.
+    // Compare against the stored value in the transaction, preserving ties.
+    env.DB.prepare(
+      'UPDATE players SET best_score = ?, best_level = ?, best_at = ? WHERE id = ? AND best_score < ?',
+    ).bind(score, maxLevel, now, player.id, score),
   ];
-  if (improved) {
-    statements.push(
-      env.DB.prepare('UPDATE players SET best_score = ?, best_level = ?, best_at = ? WHERE id = ?').bind(
-        score,
-        maxLevel,
-        now,
-        player.id,
-      ),
-    );
-  }
-  await env.DB.batch(statements);
+  const results = await env.DB.batch(statements);
+  const improved = results[2].meta.changes > 0;
 
-  const best = improved ? { best_score: score, best_at: now } : player;
+  // Return the current authoritative best, including when this score lost a race.
+  const best = await env.DB.prepare('SELECT best_score, best_at FROM players WHERE id = ?').bind(player.id).first();
   return json({
     improved,
     best: best.best_score,
