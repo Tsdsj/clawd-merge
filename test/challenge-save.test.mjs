@@ -50,10 +50,8 @@ test('damaged and foreign daily saves are rejected without replacing existing by
   value = '{bad';
   assert.equal(store.read().kind, 'invalid');
 });
-test('practice date uses Shanghai midnight, and formal service fails closed', async () => {
-  const { practiceDefinition, challengeService } = await import('../src/challenge.js');
+test('practice date uses Shanghai midnight', async () => {
+  const { practiceDefinition } = await import('../src/challenge.js');
   assert.equal(practiceDefinition(new Date('2026-10-02T15:59:59Z')).challengeId, '2026-10-02');
   assert.equal(practiceDefinition(new Date('2026-10-02T16:00:00Z')).challengeId, '2026-10-03');
-  assert.equal(challengeService.formalAvailable, false);
-  await assert.rejects(challengeService.startFormal(), /formal_unavailable/);
 });

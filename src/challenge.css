@@ -503,3 +503,88 @@
     padding: 10px 8px;
   }
 }
+.daily-identity {
+  align-items: center;
+  gap: 8px;
+}
+.daily-identity .link-btn {
+  font-size: 11px;
+  min-height: 30px;
+  flex: none;
+}
+#daily-identity {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: left;
+}
+.daily-badge.formal {
+  color: #f6c6a9;
+  border-color: #8c6354;
+  background: #342b36;
+}
+.daily-rank-list {
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+  max-height: 45dvh;
+  overflow-y: auto;
+}
+.daily-rank-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  padding: 11px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+}
+.daily-rank-list span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.daily-rank-list b {
+  flex: none;
+  color: #f1bd9f;
+}
+.daily-my-rank {
+  padding: 12px;
+  border: 1px solid #806a57;
+  border-radius: 6px;
+  background: #302b38;
+}
+.daily-queue-list {
+  max-height: 50dvh;
+  overflow-y: auto;
+}
+.daily-queue-list section {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+.daily-queue-list b {
+  font-size: 15px;
+}
+.daily-queue-list p {
+  font-size: 12px;
+}
+.daily-queue-list .btn {
+  margin-right: 12px;
+  font-size: 12px;
+  min-height: 36px;
+}
+#daily-result-rank {
+  display: block;
+  width: 100%;
+  margin-bottom: 10px;
+}
+@media (orientation: landscape) and (max-height: 540px) {
+  .daily-identity {
+    display: flex;
+    margin-top: 2px;
+  }
+  .daily-identity .link-btn {
+    min-height: 22px;
+  }
+}

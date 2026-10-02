@@ -129,7 +129,9 @@ export const leaderboard = {
     const returnTo = location.origin + location.pathname + location.search;
     const { url } = await request('/api/auth/linuxdo/start', {
       method: 'POST',
-      token: this.player?.token,
+      // Existing LINUX DO users reauthenticate through OAuth itself. An expired
+      // app token must not prevent that; guests still prove ownership to merge.
+      token: this.player?.linuxdo ? undefined : this.player?.token,
       body: { returnTo },
     });
     location.assign(url);
@@ -197,6 +199,12 @@ export const leaderboard = {
     const round=this.round;
     if(!round?.player || round.player.token!==this.player?.token)return null;
     return {playerId:round.player.id,playerName:round.player.name,sessionId:round.sessionId||null,promise:round.promise};
+  },
+
+  challengeRequest(path,options={}) {
+    if(!this.enabled)throw new LeaderboardError('offline','尚未配置挑战服务');
+    if(!path.startsWith('/api/challenges/'))throw new Error('invalid_challenge_path');
+    return request(path,{timeoutMs:8000,token:this.uploadPlayer()?.token,...options});
   },
 
   async sendResult(body,token) {

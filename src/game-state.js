@@ -5,7 +5,7 @@ export { CLASSIC_RULES_VERSION as RULES_VERSION } from './rules.js';
 
 export const SCHEMA_VERSION = 1;
 const fields = ['score','bestAtStart','recordShown','time','visualTime','drops','maxLevel','current','next',
-  'aimX','cooldown','danger','warning','combo','feverMeter','feverTime','claws'];
+  'aimX','cooldown','danger','warning','combo','feverMeter','feverTime','claws','clawsUsed'];
 const bodyFields = ['level','x','y','angle','vx','vy','w','sleeping','stillTime','restX','restY','restAngle','born','landedFor'];
 const pick = (object, keys) => Object.fromEntries(keys.map(k => [k, object[k] !== undefined ? object[k] : (k === 'landedFor' ? 0 : undefined)]));
 const number = (n, lo, hi, integer = false) => typeof n === 'number' && Number.isFinite(n) && n >= lo && n <= hi && (!integer || Number.isInteger(n));
@@ -19,6 +19,7 @@ export function validateGameState(s) {
   requireValue(typeof s.recordShown === 'boolean');
   if (Object.hasOwn(s, 'challenge')) validateChallenge(s.challenge, s.drops, s.current, s.next);
   else for (const key of ['current','next']) requireValue(number(s[key],0,5,true));
+  if(Object.hasOwn(s,'clawsUsed'))requireValue(number(s.clawsUsed,0,5,true));
   requireValue(number(s.maxLevel,1,11,true) && number(s.claws,0,3,true));
   requireValue(number(s.aimX,0,400) && number(s.cooldown,0,0.5));
   requireValue(number(s.danger,0,3) && number(s.warning,0,2,true));
@@ -73,6 +74,7 @@ export function restoreGame(g, state) {
   }
   // No callbacks or durable writes before validation and reconstruction succeed.
   g.world = world; g.gameplayRandom = gameplayRandom; Object.assign(g,pick(state,fields));
+  g.clawsUsed = state.clawsUsed ?? 0;
   if (state.challenge) g.challenge = { ...state.challenge };
   g.lastMergeAt = state.lastMergeAt ?? -Infinity;
   g.best = Math.max(g.best,state.score,state.bestAtStart);

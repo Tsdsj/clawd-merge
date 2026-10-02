@@ -44,13 +44,3 @@ export function validateChallenge(state, drops, current, next) {
     throw new Error('invalid_challenge_state');
   return levels;
 }
-
-// T10 supplies the authoritative server adapter. No local formal counter or
-// device-date fallback can silently become a ranked definition.
-export const challengeService = Object.freeze({
-  formalAvailable: false,
-  practice: practiceDefinition,
-  async startFormal() {
-    throw new Error('formal_unavailable');
-  },
-});

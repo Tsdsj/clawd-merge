@@ -260,3 +260,19 @@ test('upload responses must contain a consistent receipt and expose retry-after'
   t.mock.method(globalThis,'fetch',async()=>Response.json({error:'rate_limited',message:'wait'},{status:429,headers:{'Retry-After':'60'}}));
   await assert.rejects(leaderboard.sendResult(body,'test-token'),err=>err.status===429&&err.retryAfterMs===60000);
 });
+
+test('disabled challenge service never sends a stored credential', async (t) => {
+  const { leaderboard, calls } = await client(t,'https://tsdsj.github.io/clawd-merge/',new Map([[legacyKey,JSON.stringify(oldPlayer)]]));
+  leaderboard.enabled=false;
+  await assert.rejects(async()=>leaderboard.challengeRequest('/api/challenges/today'),{code:'offline'});
+  assert.equal(calls.length,0);
+});
+
+test('LINUX DO reauthentication omits an expired token, while guest binding still carries it',async(t)=>{
+ const account=await client(t,'https://tsdsj.github.io/clawd-merge/',new Map([[legacyKey,JSON.stringify({...oldPlayer,linuxdo:true})]]));
+ globalThis.location.assign=()=>{};await account.leaderboard.loginWithLinuxdo();
+ assert.equal(account.calls[0].headers.Authorization,undefined);
+ const guest=await client(t,'https://tsdsj.github.io/clawd-merge/',new Map([[legacyKey,JSON.stringify({...oldPlayer,linuxdo:false})]]));
+ globalThis.location.assign=()=>{};await guest.leaderboard.loginWithLinuxdo();
+ assert.equal(guest.calls[0].headers.Authorization,`Bearer ${oldPlayer.token}`);
+});

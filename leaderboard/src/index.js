@@ -1,3 +1,4 @@
+import { challengeRoute, mergeChallengeStatements } from './challenges.js';
 // 合成大Clawd leaderboard API — a zero-dependency Cloudflare Worker backed by D1.
 //
 // Identity
@@ -90,6 +91,7 @@ export default {
 async function route(request, env) {
   const url = new URL(request.url);
   const key = `${request.method} ${url.pathname.replace(/\/+$/, '')}`;
+  if(url.pathname.startsWith('/api/challenges/'))return challengeRoute(request,env,url,{ApiError,json,int,readJson,authenticate,rateLimit,publicPlayer});
   switch (key) {
     case 'GET /api/health':
       return json({ ok: true });
@@ -335,6 +337,7 @@ async function upsertLinuxdoPlayer(db, user, mergeGuestId) {
             .prepare('UPDATE players SET best_score = ?, best_level = ?, best_at = ?, games = games + ? WHERE id = ?')
             .bind(guest.best_score, guest.best_level, guest.best_at, guest.games, id)
         : db.prepare('UPDATE players SET games = games + ? WHERE id = ?').bind(guest.games, id),
+      ...mergeChallengeStatements(db,id,guest.id),
       db.prepare('DELETE FROM players WHERE id = ?').bind(guest.id),
     ]);
   }
@@ -362,6 +365,7 @@ async function exchangeLoginCode(request, env) {
 // ---------- game ----------
 
 async function startSession(request, env) {
+  if(request.body){const body=await readJson(request);if(body?.mode!==undefined&&body.mode!=='classic'||body?.challengeId!==undefined)throw new ApiError(400,'wrong_mode','挑战需使用独立开局接口');}
   const player = await authenticate(request, env);
   await rateLimit(env.DB, `session:${player.id}`, LIMITS.session, '操作太频繁了，请稍后再试');
   const now = Date.now();
@@ -391,6 +395,7 @@ async function submitScore(request, env) {
   const player = await authenticate(request, env);
   await rateLimit(env.DB, `score:${player.id}`, LIMITS.score, '提交太频繁了，请稍后再试');
   const body = await readJson(request);
+  if(body?.mode!==undefined&&body.mode!=='classic'||body?.challengeId!==undefined)throw new ApiError(400,'wrong_mode','挑战需使用独立成绩接口');
   const score = int(body.score, 0, 10_000_000, 'score');
   const drops = int(body.drops, 1, MAX_DROPS, 'drops');
   const maxLevel = int(body.maxLevel, 1, MAX_LEVEL, 'maxLevel');

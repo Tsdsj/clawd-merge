@@ -126,3 +126,44 @@ MINIFLARE_MODULE=/path/to/node_modules/miniflare node leaderboard/test/d1-receip
 API 覆盖参数只对 loopback 页面生效（`localhost`、`127.0.0.1`、`[::1]`），并且目标也必须是 loopback HTTP(S) origin；不接受路径、账号密码、查询参数或 fragment。生产页面与局域网 IP 页面忽略覆盖参数。无效参数回退到 `src/config.js` 配置的地址，不会向参数指定的目标发送登录 token 或登录码。
 
 本地身份按 API 地址分别保存，切换端口或主机名后需要使用对应身份；旧版共享的本地身份不会自动迁移，需重新登录或注册。线上身份存储键保持不变。
+
+## 每日挑战接口（T10 开发版）
+
+以下接口使用独立数据表和凭证，部署前须先应用 `0004_daily_challenges.sql`。本次只完成本地实现，尚未远程迁移或部署。
+
+| 方法 | 路径 | 行为 |
+| --- | --- | --- |
+| GET | `/api/challenges/today` | 服务器北京时间题目、serverNow；已登录时附当日 allowance 与个人 me，匿名为 null |
+| POST | `/api/challenges/session` | `{ challengeId, rulesVersion, requestId, mode?: "formal" }`；原子领取一次机会，稳定请求标识可重放 |
+| GET | `/api/challenges/session/check?sessionId=...` | 本人原凭证核验，不领取、不续期；返回 valid／used／expired／invalid |
+| POST | `/api/challenges/score` | 正式成绩提交，原子接受并返回不可变回执 |
+| GET | `/api/challenges/leaderboard?challengeId=...&limit=20` | 每题前 N 名（最多 100）、总人数与本人 me；不含经典或练习成绩 |
+
+题目对象包括 `challengeId`、`rulesVersion`、`count`、`startsAt`、`endsAt`、`submitUntil`、`attemptLimit`、`settleSeconds`、`stableSeconds`。以服务端返回值为准，不使用设备日期领取正式机会。当前规则为 100 投、每日 3 次、8 秒结算上限、0.75 秒落稳；旧题截止为次日北京时间 00:10。
+
+开局响应包含 `session`、`challenge`、`allowance`、`serverNow` 和当前 `status`（valid／used／expired）。`session` 包含 sessionId、playerId、challengeId、rulesVersion、attempt、startedAt、submitUntil。相同 requestId 的身份／题目／版本必须一致；不可在响应不明时换 requestId 重试。已结束或过期的重放不能作为新正式局开始。
+
+成绩请求示例字段（题目、版本与凭证必须来自原开局）：
+
+```json
+{
+  "mode": "formal",
+  "sessionId": "原正式凭证",
+  "challengeId": "2026-10-03",
+  "rulesVersion": "daily-1",
+  "score": 3465,
+  "drops": 100,
+  "maxLevel": 9,
+  "clawsUsed": 1,
+  "settlingMs": 1200,
+  "reason": "limit"
+}
+```
+
+`reason` 为 `limit` 或 `danger`；limit 须 100 投且结算至少 750 ms，最多 8000 ms。未到 100 投时 settlingMs 须为 0。首次提交必须在服务器截止前处理；已接受的相同内容可在截止后重放 `{ sessionId, challengeId, rulesVersion, improved, best, rank }`。不同内容返回 409，不覆盖原回执。限流返回 Retry-After，客户端仍需遵守。
+
+典型错误：`attempts_exhausted`（当日机会用完）、`challenge_changed`（需刷新日题）、`rules_mismatch`、`start_conflict`、`score_conflict`、`challenge_expired`、`bad_session`、`wrong_mode`。身份只由 Bearer token 确定；不能用请求体指定别人身份。
+
+游客合并到已有 LINUX DO 身份时，已用次数相加，每题最佳取更高值，同分保留较早时间；历史接受回执不改写。合并后的 used 可能大于 3，remaining 始终是 `max(0, 3-used)`。客户端先处理未完成正式局、未确认开局和待处理成绩，再绑定或退出。
+
+本地 `SCORE_FAULTS=1` 才启用的故障控制增加了挑战开局、提交、核验以及服务时钟模拟；仅供 loopback 隔离测试，不属于 Worker 路由，不会随 Worker 发布。验证证据见 [T10 交付记录](../docs/verification/m2-t10.md)。

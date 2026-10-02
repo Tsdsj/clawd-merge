@@ -459,3 +459,23 @@ test('upgrading a pre-login database keeps old players working', async () => {
   // The old name no longer blocks anyone.
   assert.equal((await call('POST', '/api/register', { body: { name: '老玩家' } })).status, 201);
 });
+
+test('guest binding combines daily allowance and best history without changing classic scores', async () => {
+  const account = await linuxdoLogin({ id: 606060, username: 'daily_member' });
+  const guest = await register('挑战游客');
+  const definition = (await call('GET', '/api/challenges/today')).data.challenge;
+  async function daily(token, score) {
+    const start = await call('POST','/api/challenges/session',{token,body:{challengeId:definition.challengeId,rulesVersion:definition.rulesVersion,requestId:crypto.randomUUID()}});
+    const s=start.data.session;
+    env.DB.raw.prepare('UPDATE challenge_sessions SET started_at=started_at-10000 WHERE id=?').run(s.sessionId);
+    return call('POST','/api/challenges/score',{token,body:{mode:'formal',sessionId:s.sessionId,challengeId:s.challengeId,rulesVersion:s.rulesVersion,score,drops:10,maxLevel:5,clawsUsed:0,settlingMs:0,reason:'danger'}});
+  }
+  assert.equal((await daily(account.token,50)).status,200);
+  assert.equal((await daily(guest.token,100)).status,200);
+  const merged=await linuxdoLogin({id:606060,username:'daily_member'},{guestToken:guest.token});
+  const today=(await call('GET','/api/challenges/today',{token:merged.token})).data;
+  assert.equal(today.allowance.used,2);assert.equal(today.allowance.remaining,1);
+  const board=(await call('GET',`/api/challenges/leaderboard?challengeId=${definition.challengeId}`,{token:merged.token})).data;
+  assert.equal(board.total,1);assert.equal(board.me.best,100);
+  assert.equal((await call('GET','/api/me',{token:merged.token})).data.best,0);
+});

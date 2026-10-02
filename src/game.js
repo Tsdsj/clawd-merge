@@ -111,6 +111,7 @@ export class Game {
     this.feverMeter = 0;
     this.feverTime = 0;
     this.claws = 0;
+    this.clawsUsed = 0;
     this.clawMode = false;
     this.particles = [];
     this.texts = [];
@@ -426,6 +427,7 @@ export class Game {
     this.ring(target.x, target.y, 10, target.bound * 1.4, '#8FE3FF');
     this.floatText('夹走!', target.x, target.y - 20, 20, '#8FE3FF', 1);
     this.claws--;
+    this.clawsUsed++;
     this.clawMode = false;
     sfx.claw();
     buzz(25);

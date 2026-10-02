@@ -12,7 +12,9 @@ const port = Number(process.env.PORT) || 8787;
 const base = `http://localhost:${port}`;
 // Opt-in, local test server only. Never part of the deployed Worker.
 const faultControls=process.env.SCORE_FAULTS==='1';
-let scoreMode='pass';
+let scoreMode='pass',challengeStartMode='pass',challengeScoreMode='pass',challengeCheckMode='pass',challengeChecks=0;
+const systemNow=Date.now.bind(Date);let clockOffset=0;
+if(faultControls)Date.now=()=>systemNow()+clockOffset;
 const env = {
   DB: createD1(process.env.DB_FILE || ':memory:'),
   ALLOWED_ORIGINS: '*',
@@ -76,19 +78,28 @@ createServer(async (req, res) => {
     !['127.0.0.1','::1','::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) {
     res.writeHead(403).end();return;
   }
-  if(faultControls && url.pathname==='/__test__/score-mode' && req.method==='POST') {
+  if(faultControls && url.pathname==='/__test__/clock' && req.method==='POST') {
+    let at;try{at=JSON.parse(body?.toString()||'{}').at;}catch{res.writeHead(400).end();return;}
+    const timestamp=at===null?systemNow():Date.parse(at);
+    if(!Number.isFinite(timestamp)){res.writeHead(400).end();return;}
+    clockOffset=at===null?0:timestamp-systemNow();
+    res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({serverNow:Date.now()}));return;
+  }
+  if(faultControls && ['/__test__/score-mode','/__test__/challenge-start-mode','/__test__/challenge-score-mode','/__test__/challenge-check-mode'].includes(url.pathname) && req.method==='POST') {
     let next;
     try { next=JSON.parse(body?.toString()||'{}').mode; } catch { res.writeHead(400).end();return; }
     if(!['pass','fail-before','drop-after'].includes(next)){res.writeHead(400).end();return;}
-    scoreMode=next;res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({mode:scoreMode}));return;
+    if(url.pathname==='/__test__/challenge-check-mode')challengeCheckMode=next;else if(url.pathname==='/__test__/challenge-start-mode')challengeStartMode=next;else if(url.pathname==='/__test__/challenge-score-mode')challengeScoreMode=next;else scoreMode=next;res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({mode:next}));return;
   }
   if(faultControls && url.pathname==='/__test__/stats') {
     const scores=env.DB.raw.prepare('SELECT COUNT(*) AS n FROM scores').get().n;
     const receipts=env.DB.raw.prepare('SELECT COUNT(*) AS n FROM score_receipts').get().n;
     const games=env.DB.raw.prepare('SELECT COALESCE(SUM(games),0) AS n FROM players').get().n;
-    res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({scores,receipts,games}));return;
+    res.writeHead(200,{'Content-Type':'application/json'}).end(JSON.stringify({scores,receipts,games,challengeChecks,challengeSessions:env.DB.raw.prepare('SELECT COUNT(*) n FROM challenge_sessions').get().n,challengeScores:env.DB.raw.prepare('SELECT COUNT(*) n FROM challenge_scores').get().n,challengeUsed:env.DB.raw.prepare('SELECT COALESCE(SUM(used),0) n FROM challenge_allowances').get().n}));return;
   }
-  if(faultControls && url.pathname==='/api/score' && scoreMode==='fail-before') {
+  if(faultControls&&req.method==='GET'&&url.pathname==='/api/challenges/session/check')challengeChecks++;
+  const activeFaultMode=url.pathname==='/api/challenges/session/check'?challengeCheckMode:url.pathname==='/api/challenges/session'?challengeStartMode:url.pathname==='/api/challenges/score'?challengeScoreMode:url.pathname==='/api/score'?scoreMode:'pass';
+  if(faultControls && activeFaultMode==='fail-before' && req.method!=='OPTIONS') {
     res.writeHead(503,{'Content-Type':'application/json','Access-Control-Allow-Origin':'*'}).end(JSON.stringify({error:'test_unavailable',message:'隔离测试：暂不可用'}));return;
   }
   let response = url.pathname.startsWith('/mock-linuxdo/') ? mockLinuxdo(url, body ?? '') : undefined;
@@ -101,7 +112,7 @@ createServer(async (req, res) => {
     });
     response = await worker.fetch(request, env);
   }
-  if(faultControls && url.pathname==='/api/score' && scoreMode==='drop-after' && response.status===200) {
+  if(faultControls && activeFaultMode==='drop-after' && response.status===200) {
     res.destroy();return;
   }
   res.writeHead(response.status, Object.fromEntries(response.headers));

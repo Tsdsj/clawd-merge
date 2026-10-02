@@ -222,6 +222,7 @@ function showModal(modal, open) {
   const anyOpen = modals.some((m) => !m.classList.contains('hidden'));
   document.body.classList.toggle('modal-open', anyOpen);
   document.querySelector('.app').inert = anyOpen;
+  $('daily-app').inert = anyOpen;daily?.setExternalModal(anyOpen);
   clearInputs();
   pauses.set('modal', anyOpen);
   if (open) modal.querySelector('button:not(:disabled), input')?.focus();
@@ -280,6 +281,7 @@ function nameEl(p, className) {
 }
 
 function showPlayer() {
+  daily?.identityChanged();
   outbox?.wakeIdentity();
   const { player, enabled } = leaderboard;
   const chip = $('player-chip');
@@ -317,6 +319,9 @@ function showLocalResult() {
 function askName(message = '') {
   drawCrabIcon($('name-crab'), 1, 64, 40, dpr);
   $('name-error').textContent = message;
+  $('name-round-note').textContent=daily?.active?'练习不能补交成正式成绩；选择身份本身不会扣正式机会。':'当前本地局不能补交。局中登录会离开页面，建议打完后再加入。';
+  $('name-title').textContent=daily?.active?'选择身份，参加正式挑战':'让下一局，登上榜单';
+  nameModal.querySelector('.sheet-sub').textContent=daily?.active?'游客与 LINUX DO 都可参加；领取正式凭证后才消耗机会。':'不加入也能继续玩。选择一个身份，让下一局成绩参与排名。';
   showModal(nameModal, true);
 }
 
@@ -347,7 +352,7 @@ $('name-form').addEventListener('submit', async (e) => {
     guide.dismiss();
     updateGuide();
     board.focus();
-    toast('已加入！本局继续本地游玩，下一局参与排名。', 4500);
+    toast(daily?.active?'身份已就绪，可在每日挑战入口确认正式开局。':'已加入！本局继续本地游玩，下一局参与排名。', 4500);
   } catch (err) {
     $('name-error').textContent = err.message;
   } finally {
@@ -361,13 +366,15 @@ $('name-offline').addEventListener('click', () => {
 
 // Leaves the page for LINUX DO; comes back with #login=<code>.
 async function goLinuxdo(button, errorEl) {
+  if(daily&&!daily.canNavigateForAuth()){errorEl.textContent='每日挑战还有进度或结果未安全保存，请先重试保存或处理记录，再离开页面登录。';return;}
+  if(leaderboard.player&&!leaderboard.player.linuxdo&&daily?.hasBoundWork(leaderboard.player.id)){errorEl.textContent='绑定前请先处理每日挑战中的未完成正式局、未知开局或待提交成绩。';return;}
   const unsettled=leaderboard.player&&!leaderboard.player.linuxdo&&uploads.hasUnresolved(leaderboard.player.id);
   const unsaved=outbox.list().some(e=>!e.durable&&!e.journaled&&e.state!=='accepted');
   if(unsettled||unsaved) {
     uploads.open(unsaved?'有成绩尚未保存，请先重试保存或明确移除，再离开页面登录。':'绑定前还有游客成绩待处理，请先补传或明确移除记录。');
     return;
   }
-  if (game.drops > 0 && !game.over && !confirm('登录将离开当前页面，本局进度不会保存。现在去登录吗？')) return;
+  if (game.drops > 0 && !game.over) { const saved=saves?.flush();if(!confirm(saved?'登录会离开页面，已保存的经典局可以续玩。现在去登录吗？':'当前经典局尚未保存成功，离开可能丢失进度。仍去登录吗？'))return; }
   button.disabled = true;
   errorEl.textContent = '';
   try {
@@ -379,6 +386,7 @@ async function goLinuxdo(button, errorEl) {
 }
 $('ld-login').addEventListener('click', (e) => goLinuxdo(e.currentTarget, $('name-error')));
 $('acc-ld').addEventListener('click', (e) => goLinuxdo(e.currentTarget, $('acc-error')));
+$('acc-reauth').addEventListener('click', (e) => goLinuxdo(e.currentTarget, $('acc-error')));
 
 function openAccount(message = '') {
   const p = leaderboard.player;
@@ -393,6 +401,7 @@ function openAccount(message = '') {
     ? `LINUX DO 账号 · 信任等级 ${p.trustLevel ?? 0}`
     : '游客 · 身份只保存在这个浏览器';
   $('acc-guest').classList.toggle('hidden', p.linuxdo);
+  $('acc-reauth').classList.toggle('hidden', !p.linuxdo);
   $('rename-input').value = '';
   $('acc-error').textContent = message;
   showModal(accountModal, true);
@@ -417,6 +426,7 @@ $('rename-form').addEventListener('submit', async (e) => {
 });
 
 $('acc-logout').addEventListener('click', async () => {
+  if(daily?.hasBoundWork(leaderboard.player?.id)){$('acc-error').textContent='退出前请先处理每日挑战的正式资格、未确认开局和待提交成绩。';return;}
   const guest = !leaderboard.player?.linuxdo;
   if(guest && uploads.hasUnresolved(leaderboard.player?.id)) {
     uploads.open('退出游客身份前，请先补传或明确移除待处理成绩。');return;
@@ -648,7 +658,7 @@ document.addEventListener('gesturestart', (e) => e.preventDefault());
 
 const keys = new Set();
 window.addEventListener('keydown', (e) => {
-  if (daily?.active) return;
+  if (daily?.active && !modalOpen()) return;
   if (modalOpen()) {
     const active = modals.find((m) => !m.classList.contains('hidden'));
     if (e.code === 'Escape') showModal(active, false);
@@ -763,7 +773,9 @@ window.addEventListener('storage',event=>{
 window.addEventListener('online',()=>outbox.wakeOnline());
 window.addEventListener('pagehide',()=>outbox.stop());
 window.addEventListener('pageshow',event=>{if(event.persisted)outbox.start();});
-daily=createChallengeUI({scope:leaderboard.saveScope,identity:()=>leaderboard.player?displayName(leaderboard.player):'',
+daily=createChallengeUI({scope:leaderboard.saveScope,identity:()=>{const p=leaderboard.uploadPlayer();return p?`${p.linuxdo?'L':'游客'} · ${displayName(p)}`:'';},
+  getPlayer:()=>leaderboard.uploadPlayer(),request:(path,options)=>leaderboard.challengeRequest(path,options),
+  requestIdentity:()=>askName(),requestAccount:()=>{leaderboard.player=leaderboard.uploadPlayer();leaderboard.player?openAccount():askName();},
   classicSummary:()=>game.drops&&!game.over?`经典局仍保留 · ${game.score} 分，可随时切回继续。`:'经典模式与挑战使用独立存档。',
   onEnter(){
     if(modalOpen())return false;

@@ -1,5 +1,7 @@
 import { resultFields, sameResult, receiptFields } from './score-result.js';
 
+const classicCodec={fields:resultFields,same:sameResult,receipt:receiptFields,body:e=>({sessionId:e.sessionId,score:e.score,drops:e.drops,maxLevel:e.maxLevel})};
+
 const STATES = new Set([
   'ticket',
   'pending',
@@ -25,6 +27,7 @@ export class Outbox {
     onChange = () => {},
     onDurable = () => {},
     onClear = () => true,
+    codec = classicCodec,
   }) {
     Object.assign(this, {
       scope,
@@ -38,6 +41,7 @@ export class Outbox {
       onChange,
       onDurable,
       onClear,
+      codec,
     });
     this.prefix = `clawd-merge:outbox:${encodeURIComponent(scope)}:`;
     this.memory = new Map();
@@ -51,7 +55,7 @@ export class Outbox {
   parse(raw, key) {
     if (raw.length > 65536) throw new Error('invalid_record');
     const v = JSON.parse(raw),
-      fields = resultFields(v);
+      fields = this.codec.fields(v);
     if (
       v.version !== 1 ||
       !STATES.has(v.state) ||
@@ -71,7 +75,7 @@ export class Outbox {
       createdAt: v.createdAt,
       nextAt: v.nextAt,
       error: String(v.error || '').slice(0, 100),
-      receipt: v.receipt ? receiptFields(v.receipt) : null,
+      receipt: v.receipt ? this.codec.receipt(v.receipt,fields) : null,
       cleanupPending: Boolean(v.cleanupPending),
       key,
       durable: true,
@@ -150,14 +154,14 @@ export class Outbox {
     return entry;
   }
   enqueue(value, { journaled = false } = {}) {
-    const fields = resultFields(value),
+    const fields = this.codec.fields(value),
       key = this.keyOf(fields),
       existing = this.get(key);
     if (existing) {
       const completedTicket = fields.sessionId === null && existing.sessionId;
       if (
         existing.state === 'corrupt' ||
-        !sameResult(existing, completedTicket ? { ...fields, sessionId: existing.sessionId } : fields)
+        !this.codec.same(existing, completedTicket ? { ...fields, sessionId: existing.sessionId } : fields)
       )
         throw new Error('result_conflict');
       return existing;
@@ -186,7 +190,7 @@ export class Outbox {
       entry.error = 'no_session';
     } else {
       entry.sessionId = sessionId;
-      resultFields(entry);
+      this.codec.fields(entry);
       entry.state = 'pending';
       entry.error = '';
       entry.attempts = 0;
@@ -256,11 +260,11 @@ export class Outbox {
       this.persist(entry);
       try {
         const result = await this.send(
-          { sessionId: entry.sessionId, score: entry.score, drops: entry.drops, maxLevel: entry.maxLevel },
+          this.codec.body(entry),
           player.token,
         );
         if (entry.durable && !this.get(key)) return false;
-        entry.receipt = receiptFields(result);
+        entry.receipt = this.codec.receipt(result,entry);
         entry.state = 'accepted';
         entry.cleanupPending = true;
         entry.error = '';

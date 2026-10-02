@@ -75,6 +75,7 @@ test('claws are rewarded only for new level milestones, capped at three, consume
   const target = g.world.bodies[0];
   assert.equal(g.useClawAt(target.x, target.y), true);
   assert.equal(g.claws, 2);
+  assert.equal(g.clawsUsed, 1);
   assert.equal(g.clawMode, false);
 });
 

@@ -2,6 +2,7 @@ const integer = (n, min, max) => Number.isSafeInteger(n) && n >= min && n <= max
 export function resultFields(value) {
   if (
     !value ||
+    (value.mode !== undefined && value.mode !== 'classic') || value.challengeId !== undefined ||
     !['roundId', 'playerId'].every(
       (k) => typeof value[k] === 'string' && value[k].length > 0 && value[k].length <= 128,
     ) ||
