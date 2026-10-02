@@ -136,13 +136,13 @@ npm start
 
 自动回归由 `.github/workflows/ci.yml` 执行；本地证据与未关闭的发布检查见 [M1 / T07 检查报告](docs/verification/m1-t07.md)。
 
-## 每日挑战（当前开发版）
+## 每日挑战（M2 已发布）
 
 默认仍直接进入经典模式，可切换到每日挑战练习。每题 100 投，最后一投后停止道具操作，落稳持续 0.75 秒或达到 8 秒结算上限后结束。经典与挑战分别保存；练习结果不改经典最高分、图鉴或排行榜。
 
-当前本地开发版已接入服务器日题、正式机会与独立今日榜：游客与 LINUX DO 身份均为每日 3 次正式机会（绑定时累计已用次数），练习不限；旧题须在次日北京时间 00:10 前提交。开局重试不重复扣次，结算结果可可靠补传；没有服务器题目时可练习已有缓存。
+M2 已接入服务器日题、正式机会与独立今日榜：游客与 LINUX DO 身份均为每日 3 次正式机会（绑定时累计已用次数），练习不限；旧题须在次日北京时间 00:10 前提交。开局重试不重复扣次，结算结果可可靠补传；没有服务器题目时可练习已有缓存。
 
-开发验证见 [T10 记录](docs/verification/m2-t10.md)。**此版本尚未部署到上方在线地址**；本地请启动 `npm run lb:dev`，并使用 loopback API 参数连接。
+开发验证见 [T10 记录](docs/verification/m2-t10.md)，线上发布与验收范围见 [M2 发布记录](docs/verification/m2-release.md)。本地开发可启动 `npm run lb:dev`，并使用 loopback API 参数连接。
 
 ## 部署
 
@@ -245,4 +245,4 @@ Add `?debug` to the URL to see collision shapes.
 
 Clawd is Anthropic's mascot for Claude Code. This is an unofficial fan game, **not affiliated with or endorsed by Anthropic**. Code is released under the [MIT](LICENSE) license. Thanks to the [LINUX DO](https://linux.do) community.
 
-当前开发版支持每日挑战结果的本地 PNG 分享卡及同题链接：旧题只练习，目标分不作为官方成绩证明。支持平台可调用系统分享，其他平台可保存图片或复制链接；详情见 [T11 验证记录](docs/verification/m2-t11.md)。尚未部署到线上。
+M2 支持每日挑战结果的本地 PNG 分享卡及同题链接：旧题只练习，目标分不作为官方成绩证明。支持平台可调用系统分享，其他平台可保存图片或复制链接；详情见 [T11 验证记录](docs/verification/m2-t11.md)及 [M2 发布验收](docs/verification/m2-release.md)。
