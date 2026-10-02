@@ -14,7 +14,8 @@
     "lb:dev": "node leaderboard/test/dev-server.mjs",
     "icons": "node scripts/make-icons.mjs",
     "test:http": "node test/upload-timeout.integration.mjs",
-    "test:d1": "node leaderboard/test/d1-receipts.integration.mjs"
+    "test:d1": "node leaderboard/test/d1-receipts.integration.mjs",
+    "ops:report": "node leaderboard/ops/run.mjs"
   },
   "engines": {
     "node": ">=22.13"

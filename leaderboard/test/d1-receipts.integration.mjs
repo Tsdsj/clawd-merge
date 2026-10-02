@@ -5,6 +5,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { mergeChallengeStatements } from '../src/challenges.js';
+import { collectReport, cleanupStatements } from '../ops/report.mjs';
 
 const require = createRequire(import.meta.url);
 const modulePath = process.env.MINIFLARE_MODULE;
@@ -118,6 +119,21 @@ try {
   const mergedBoard=(await api('/api/challenges/leaderboard?challengeId='+challenge.challengeId,{token:target.token})).data;
   assert.equal(mergedBoard.total,1);assert.equal(mergedBoard.me.best,100);
   assert.deepEqual((await api('/api/challenges/score',{token:target.token,body:dailyBody})).data,dailyResults[0].data);
+  // T12 aggregates and bounded cleanup execute against the real D1 engine too.
+  const observed=Date.now()+1;
+  await db.prepare('INSERT INTO sessions(id,player_id,started_at,used) VALUES(?,?,?,0)').bind('ops-expired',target.player.id,observed-28*3600000).run();
+  await db.prepare('INSERT INTO login_codes(code_hash,player_id,created_at) VALUES(?,?,0)').bind('ops-expired-code',target.player.id).run();
+  const report=await collectReport(async sql=>{const r=await db.prepare(sql).all();return {rows:r.results,meta:r.meta};},{from:observed-3600000,to:observed,asOf:observed,source:'isolated-d1'});
+  assert.equal(report.classic.accepted,2);assert.equal(report.daily.issued,4);assert.equal(report.daily.accepted,3);assert.equal(report.daily.cohortAcceptedRatio,.75);
+  assert.equal(report.cleanup.login_codes,1);assert.equal(report.cleanup.sessions,1);
+  for(const statement of cleanupStatements(report))await db.prepare(statement.sql).run();
+  assert.equal((await db.prepare('SELECT COUNT(*) n FROM sessions WHERE id=?').bind('ops-expired').first()).n,0);
+  assert.equal((await db.prepare('SELECT COUNT(*) n FROM score_receipts').first()).n,2);
+  assert.equal((await db.prepare('SELECT COUNT(*) n FROM challenge_sessions').first()).n,4);
+  assert.equal((await api('/api/challenges/today',{token:target.token})).data.allowance.used,4);
+  assert.deepEqual((await api('/api/score',{token,body})).data,results[0].data);
+  assert.deepEqual((await api('/api/challenges/score',{token:target.token,body:dailyBody})).data,dailyResults[0].data);
+  console.log('PASS: operations aggregates count credentials/receipts once; bounded cleanup preserves classic/daily replay and quota.');
   console.log('PASS: D1 identity merge combines quota and best scores; original acceptance receipt remains immutable.');
   console.log('PASS: challenge D1 — 8 identical starts spend once, concurrent distinct starts capped at 3, 8 score replays accepted once, classic isolated, failed result rolls back.');
   console.log(

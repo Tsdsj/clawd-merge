@@ -167,3 +167,7 @@ API 覆盖参数只对 loopback 页面生效（`localhost`、`127.0.0.1`、`[::1
 游客合并到已有 LINUX DO 身份时，已用次数相加，每题最佳取更高值，同分保留较早时间；历史接受回执不改写。合并后的 used 可能大于 3，remaining 始终是 `max(0, 3-used)`。客户端先处理未完成正式局、未确认开局和待处理成绩，再绑定或退出。
 
 本地 `SCORE_FAULTS=1` 才启用的故障控制增加了挑战开局、提交、核验以及服务时钟模拟；仅供 loopback 隔离测试，不属于 Worker 路由，不会随 Worker 发布。验证证据见 [T10 交付记录](../docs/verification/m2-t10.md)。
+
+## 运行观察与维护
+
+`npm run ops:report -- --help` 提供只读 SQLite / D1 聚合报告、快照比较和有界清理候选。报告不会迁移、删除或部署；成绩/回执及挑战次数账本保留。未采集的上传成功率、真实完成率和留存明确为未知。详见[运行说明](../docs/operations/README.md)与[T12 验证](../docs/verification/m2-t12.md)。
