@@ -197,6 +197,7 @@ export class Game {
     sfx.drop();
     if (level === RAINBOW && !this.seen.has(RAINBOW)) this.discover(RAINBOW);
     this.events.onNext?.(this.next);
+    this.events.onDrop?.(this.drops);
   }
 
   spawnCrab(level, x, y) {
@@ -630,7 +631,6 @@ export class Game {
     this.drawFeverBar(ctx, now);
     if (this.danger > 0 && !this.over) this.drawCountdown(ctx, now);
     if (this.clawMode) this.drawClawHint(ctx, now);
-    if (this.drops === 0 && !this.over) this.drawHint(ctx, now);
     if (this.card) this.drawCard(ctx, now);
 
     if (this.over) {
@@ -826,19 +826,6 @@ export class Game {
     ctx.font = `800 17px ${FONT}`;
     ctx.fillStyle = `rgba(143, 227, 255, ${0.75 + 0.25 * Math.sin(now * 6)})`;
     ctx.fillText('点一只 Clawd 把它夹走', WORLD_W / 2, 60);
-    ctx.restore();
-  }
-
-  drawHint(ctx, now) {
-    const a = 0.6 + 0.25 * Math.sin(now * 3.3);
-    ctx.save();
-    ctx.textAlign = 'center';
-    ctx.fillStyle = `rgba(243, 233, 226, ${a})`;
-    ctx.font = `700 18px ${FONT}`;
-    ctx.fillText('点击或拖动来投放小Clawd', WORLD_W / 2, 320);
-    ctx.font = `14px ${FONT}`;
-    ctx.fillStyle = `rgba(157, 151, 176, ${a})`;
-    ctx.fillText('相同的 Clawd 碰到一起会合成升级', WORLD_W / 2, 348);
     ctx.restore();
   }
 

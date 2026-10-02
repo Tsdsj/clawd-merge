@@ -33,10 +33,15 @@
             </svg>
           </button>
         </div>
+        <div class="player-row">
+          <button class="player-chip hidden" id="player-chip" aria-label="我的账号"></button>
+          <p class="round-status" id="round-status" role="status">本地游玩 · 成绩仅保存在本机</p>
+          <button class="link-btn hidden" id="join-btn" type="button">加入排行榜 →</button>
+        </div>
         <div class="hud">
           <div class="score-box">
             <div class="score-line"><span class="score-label">分数: </span><span id="score">0</span></div>
-            <div class="best">最高 <span id="best">0</span></div>
+            <div class="best">本机最高 <span id="best">0</span></div>
           </div>
           <div class="next-box">
             <span>下一个</span>
@@ -64,16 +69,15 @@
               </svg>
             </button>
             <button id="restart" class="btn">重新开始</button>
+            <button id="help-btn" class="icon-btn" aria-label="玩法说明" title="玩法说明">?</button>
           </div>
-        </div>
-        <div class="player-row">
-          <button class="player-chip hidden" id="player-chip" aria-label="我的账号"></button>
         </div>
       </header>
 
       <section class="stage" id="stage">
-        <div class="board" id="board">
+        <div class="board" id="board" tabindex="0" aria-label="游戏棋盘，左右方向键瞄准，空格投放">
           <canvas id="game"></canvas>
+          <div class="first-drop hidden" id="first-drop"><b>点一下，落下第一只</b><p>手机左右拖动，松手投放<br>电脑也可用 ← → 瞄准、空格投放</p></div>
           <div class="overlay hidden" id="overlay">
             <div class="panel">
               <div class="over-title">游戏结束!</div>
@@ -86,9 +90,17 @@
                 <button id="again" class="btn big">再来一局</button>
                 <button id="over-rank" class="btn big ghost hidden">排行榜</button>
               </div>
+              <p class="local-result hidden" id="local-result"></p>
+              <button class="btn ghost hidden" id="result-join" type="button">加入排行榜，下局见</button>
+              <p class="final-sub hidden" id="next-round-note">加入后从下一局开始上榜，本局无法补交。</p>
             </div>
           </div>
         </div>
+      </section>
+
+      <section class="guide hidden" id="guide" aria-label="新手提示">
+        <div><b id="guide-title"></b><p id="guide-text" aria-live="polite"></p></div>
+        <button class="link-btn" id="guide-dismiss" type="button">知道了</button>
       </section>
 
       <footer class="legend" id="legend"></footer>
@@ -117,9 +129,10 @@
 
     <div class="modal hidden" id="name-modal" role="dialog" aria-modal="true" aria-labelledby="name-title">
       <form class="sheet" id="name-form" autocomplete="off" novalidate>
+        <button class="icon-btn sheet-close" id="name-close" type="button" aria-label="关闭身份选择">✕</button>
         <canvas id="name-crab"></canvas>
-        <h2 id="name-title">加入排行榜</h2>
-        <p class="sheet-sub">选一种身份，成绩会出现在全站排行榜上</p>
+        <h2 id="name-title">让下一局，登上榜单</h2>
+        <p class="sheet-sub">不加入也能继续玩。选择一个身份，让下一局成绩参与排名。</p>
         <button class="btn big linuxdo-btn" id="ld-login" type="button">
           <svg class="ld-logo" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">
             <clipPath id="ld-clip"><circle cx="10" cy="10" r="10" /></clipPath>
@@ -133,11 +146,12 @@
         </button>
         <p class="hint">推荐：名字就是你的 L 站用户名，换设备成绩也不丢</p>
         <div class="divider"><span>或者当游客</span></div>
-        <input id="name-input" maxlength="12" placeholder="起个名字，2~12 个字" enterkeyhint="go" spellcheck="false" />
+        <input id="name-input" aria-label="游客名字" maxlength="12" placeholder="起个名字，2~12 个字" enterkeyhint="go" spellcheck="false" />
         <p class="hint">可以和别人重名，会自动加上 #编号；只保存在这个浏览器</p>
         <p class="error" id="name-error" role="alert"></p>
-        <button class="btn big ghost" id="name-submit" type="submit">以游客身份开始</button>
-        <button class="link-btn hidden" id="name-offline" type="button">先离线玩（成绩不上榜）</button>
+        <button class="btn big ghost" id="name-submit" type="submit">以游客身份加入</button>
+        <p class="hint">当前本地局不能补交。局中登录会离开页面，建议打完后再加入。</p>
+        <button class="link-btn" id="name-offline" type="button">先继续玩</button>
       </form>
     </div>
 
@@ -172,6 +186,19 @@
     </div>
 
     <div class="toast hidden" id="toast" role="status"></div>
+
+    <div class="modal hidden" id="help-modal" role="dialog" aria-modal="true" aria-labelledby="help-title">
+      <div class="sheet">
+        <h2 id="help-title">三步就会玩</h2>
+        <ol class="help-list">
+          <li>左右瞄准，点击或松手投放。电脑可用方向键与空格。</li>
+          <li>两只相同的 Clawd 碰到一起，会合成为更大的 Clawd。</li>
+          <li>落稳后超过危险线 3 秒，游戏结束；飞在空中的不算。</li>
+        </ol>
+        <p class="hint">钳子：夹走一只；彩虹：让碰到的 Clawd 升级；狂热：8 秒内得分翻倍。</p>
+        <button class="btn" id="help-close" type="button">知道了</button>
+      </div>
+    </div>
 
     <div class="modal hidden" id="rank-modal" role="dialog" aria-modal="true" aria-labelledby="rank-title">
       <div class="sheet rank-sheet">

@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>T03 · 直接开玩与轻量引导原型</title>
+  <style>
+    :root { color-scheme: dark; --bg:#1a1b2e; --board:#151a2e; --orange:#d97757; --text:#f3e9e2; --muted:#b5aec5; --line:#34364f; font-family:'PingFang SC','Microsoft YaHei',system-ui,sans-serif; }
+    * { box-sizing:border-box; } body { margin:0; background:#101321; color:var(--text); } button,input { font:inherit; } button { cursor:pointer; min-height:44px; border:1px solid var(--line); border-radius:7px; background:#25283e; color:var(--text); padding:9px 13px; } button:hover { border-color:var(--orange); } button:focus-visible,input:focus-visible { outline:3px solid #f5cb7a; outline-offset:3px; } button:disabled { opacity:.45; cursor:default; } a { color:#efad90; } p { line-height:1.65; } [hidden] { display:none!important; }
+    .review { max-width:1080px; margin:auto; padding:26px 24px 48px; } .review-head { display:flex; align-items:center; justify-content:space-between; gap:20px; border-bottom:1px solid var(--line); padding-bottom:20px; } .eyebrow { color:#e7a78a; font-size:12px; letter-spacing:2px; } h1 { font-size:23px; margin:7px 0 0; } .review-head p { font-size:13px; color:var(--muted); margin:0; max-width:310px; } .layout { display:grid; grid-template-columns:240px minmax(0,1fr); gap:60px; margin-top:28px; align-items:start; } .scenarios { display:grid; gap:8px; } .scenarios button { text-align:left; background:transparent; padding:13px; } .scenarios button[aria-pressed=true] { border-color:var(--orange); background:#30272b; } .scenarios small { display:block; color:var(--muted); font-size:12px; margin-top:5px; } .notes { font-size:13px; color:var(--muted); margin-top:24px; } .notes strong { color:var(--text); } .flow { border-left:2px solid #66534e; padding-left:14px; line-height:2; } .device { width:min(100%,420px); margin:0 auto; background:var(--bg); padding:16px; border:1px solid var(--line); border-radius:16px; } .title-row { display:flex; align-items:center; justify-content:space-between; gap:8px; } h2 { font-size:24px; color:var(--orange); letter-spacing:3px; margin:0; text-shadow:2px 2px #0d0e1a; } .small-btn { font-size:12px; padding:7px 10px; }
+    .identity { display:flex; align-items:center; justify-content:space-between; margin:8px 0; gap:8px; font-size:12px; color:var(--muted); } .identity button { border:none; padding:0 4px; min-height:36px; color:#efad90; background:none; } .dot { display:inline-block; width:6px; height:6px; border-radius:50%; background:#b5aec5; margin-right:5px; } .hud { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; gap:8px; } .score { white-space:nowrap; font-size:23px; font-weight:800; font-variant-numeric:tabular-nums; } .caption { white-space:nowrap; font-size:11px; color:var(--muted); } .next { display:flex; align-items:center; gap:8px; } .tools { display:flex; gap:5px; } .tools button { min-width:38px; font-size:13px; padding:7px 10px; white-space:nowrap; }
+    .board { position:relative; height:360px; overflow:hidden; background:var(--board); border:3px solid #806152; border-radius:9px; box-shadow:inset 0 0 0 3px #23283c; } .aim { position:absolute; top:17px; left:calc(50% - 24px); } .aim-line { position:absolute; left:50%; top:63px; height:92px; border-left:1px dashed #a99077; } .danger { position:absolute; left:10px; right:10px; top:104px; border-top:1px dashed #d87978; } .danger-label { position:absolute; top:110px; right:13px; color:#ce8e91; font-size:10px; } .drop { position:absolute; inset:0; width:100%; border:0; border-radius:0; background:transparent; } .drop:hover { background:#ffffff02; } .first-call { position:absolute; top:179px; left:0; right:0; text-align:center; pointer-events:none; } .first-call b { font-size:17px; } .first-call p { font-size:12px; color:var(--muted); margin:7px 0; } .stack { position:absolute; bottom:8px; left:0; right:0; height:155px; pointer-events:none; } .stack canvas { position:absolute; bottom:0; } .hint { position:relative; margin-top:8px; background:#25283f; border:1px solid #494354; border-radius:7px; padding:11px 12px; pointer-events:none; } .hint b { font-size:12px; color:#edb298; } .hint p { margin:4px 0 0; font-size:12px; color:#d5cfde; } .hint button { pointer-events:auto; position:absolute; right:5px; top:0; background:none; border:0; padding:6px 10px; font-size:12px; color:var(--muted); } .hint p { padding-right:20px; }
+    .legend { display:flex; justify-content:space-around; gap:6px; padding:16px 2px 4px; } .legend-item { text-align:center; font-size:10px; color:var(--muted); } .legend canvas { display:block; margin:0 auto 5px; } .bottom-note { text-align:center; font-size:11px; color:var(--muted); margin:10px 0 0; } .offline { padding:10px 12px; margin:0 0 10px; border:1px solid #5b4d38; background:#302b28; border-radius:7px; font-size:12px; color:#edd1a5; }
+    .result { position:absolute; inset:0; display:grid; place-items:center; background:#0d1027c9; padding:16px; } .result-panel { width:100%; padding:24px 17px; text-align:center; background:#24273c; border:2px solid #997059; border-radius:10px; } .result-panel h3 { font-size:23px; margin:0; } .final-score { font-size:42px; color:#edb298; font-weight:800; margin:10px 0; } .result-panel p { font-size:12px; color:var(--muted); } .primary { background:var(--orange); border-color:var(--orange); color:#171827; font-weight:800; } .wide { width:100%; margin-top:9px; } .result-panel .local-result { padding-top:12px; border-top:1px solid #42455c; color:#e5d9cf; } .link { background:none; border-color:transparent; color:#efad90; }
+    dialog { width:min(360px,calc(100% - 32px)); color:var(--text); background:#24273c; border:2px solid #b98267; border-radius:12px; padding:25px; max-height:calc(100dvh - 32px); overflow:auto; } dialog::backdrop { background:#070b1bbd; } dialog h3 { margin:0; font-size:22px; } dialog p { color:var(--muted); font-size:13px; } dialog .close { float:right; margin:-10px -10px 0 0; background:none; border:0; } input { width:100%; min-height:46px; padding:10px 12px; color:var(--text); background:#191d30; border:1px solid #656078; border-radius:6px; margin:10px 0 0; } label { display:block; margin-top:14px; font-size:13px; } .notice { padding:10px 12px; background:#171c30; border-radius:6px; } .feedback { color:#f4bc8d; font-size:13px; min-height:20px; }
+    @media(max-width:740px) { .review { padding:16px 12px 30px; } .review-head { display:block; } .review-head p { margin-top:10px; max-width:none; } .layout { display:flex; flex-direction:column; gap:18px; margin-top:18px; } .scenarios { grid-template-columns:repeat(3,minmax(0,1fr)); gap:5px; } .scenarios button { font-size:12px; padding:9px 6px; text-align:center; } .scenarios small { display:none; } .notes { display:none; } .device { padding:12px; } .hud { display:grid; grid-template-columns:1fr auto; } .tools { grid-column:1/-1; justify-content:flex-end; } h2 { font-size:22px; } .board { height:420px; } }
+    @media(prefers-reduced-motion:reduce) { *,*::before,*::after { scroll-behavior:auto!important; } }
+  </style>
+</head>
+<body>
+<main class="review">
+  <header class="review-head"><div><span class="eyebrow">CLAWD MERGE / T03</span><h1>打开，就能玩。</h1></div><p>交互设计原型 · 非正式游戏<br>示例分数与投放仅用于演示，不连接账号或排行榜。</p></header>
+  <div class="layout">
+    <aside>
+      <nav class="scenarios" aria-label="选择原型场景">
+        <button data-scene="first" aria-pressed="true">01 首次进入<small>棋盘直接可操作，无账号弹窗</small></button>
+        <button data-scene="playing" aria-pressed="false">02 投放后<small>提示规则，不遮挡落点</small></button>
+        <button data-scene="result" aria-pressed="false">03 本地结算<small>先再来一局，再考虑上榜</small></button>
+        <button data-scene="offline" aria-pressed="false">04 服务不可用<small>仍然可以本地游玩</small></button>
+        <button data-scene="returning" aria-pressed="false">05 已有账号<small>直接开局，不重复引导</small></button>
+        <button data-scene="joining" aria-pressed="false">06 加入排行榜<small>LINUX DO 或起游客名</small></button>
+      </nav>
+      <div class="notes"><strong>推荐流程</strong><p class="flow">打开页面 → 直接投放<br>局内轻提示 → 本地结算<br>选择加入 → 下一局参与排名</p><p>点棋盘可演示前三次投放；顶部“加入排行榜”和结算入口可打开身份弹窗。弹窗不进行真实授权。</p><p>沿用原有像素素材与暖橙／深蓝配色。桌面和手机使用同一棋盘结构。</p><p>本轮只讨论 T03。暂停、续玩与成绩补传按后续任务独立实现。</p></div>
+    </aside>
+    <section class="device" aria-label="游戏界面原型">
+      <div class="title-row"><h2>合成大Clawd</h2><button id="rank" class="small-btn" aria-label="查看排行榜演示">排行榜</button></div>
+      <div class="identity"><span id="identity"><i class="dot"></i>本地游玩 · 成绩仅保存在本机</span><button id="join">加入排行榜 →</button></div>
+      <div class="offline" id="offline" role="status" hidden>暂时连不上排行榜。本局仍可玩，成绩保存在本机。</div>
+      <div class="hud"><div><div class="score">分数 <span id="score">0</span></div><div class="caption">本机最高 <span id="best">0</span></div></div><div class="next"><span class="caption">下一个</span><canvas data-crab="2" data-w="32" data-h="26"></canvas></div><div class="tools"><button disabled aria-label="钳子，当前零个">钳 0</button><button id="sound" aria-label="音效开关演示" aria-pressed="true">音</button><button id="restart">重开</button><button id="help" aria-label="玩法说明">?</button></div></div>
+      <div class="board">
+        <canvas class="aim" data-crab="1" data-w="48" data-h="32"></canvas><div class="aim-line"></div><div class="danger"></div><span class="danger-label">危险线</span>
+        <button class="drop" id="drop" aria-label="在棋盘投放一只 Clawd，演示"></button>
+        <div class="first-call" id="first-call"><b>点一下，落下第一只</b><p>手机左右拖动，松手投放<br>电脑也可用 ← → 瞄准、空格投放</p></div>
+        <div class="stack" id="stack" hidden><canvas data-crab="3" data-w="70" data-h="57" style="left:10%"></canvas><canvas data-crab="1" data-w="44" data-h="30" style="left:34%"></canvas><canvas data-crab="5" data-w="88" data-h="62" style="left:49%"></canvas><canvas data-crab="2" data-w="55" data-h="37" style="left:77%"></canvas></div>
+        <div class="result" id="result" hidden><div class="result-panel"><h3>这一局，收获不错！</h3><div class="final-score">2,480</div><p>最高合成：墨镜Clawd · 本机新纪录</p><button class="primary wide" id="again">再来一局</button><p class="local-result">本局成绩已保存在本机，不参与排名。</p><button class="wide" id="result-join">加入排行榜，下局见</button><p>加入后从下一局开始上榜，本局无法补交。</p></div></div>
+      </div>
+        <div class="hint" id="hint"><b id="hint-title">怎么玩 · 1 / 3</b><button id="dismiss">知道了</button><p id="hint-text">相同的 Clawd 碰在一起，会合成更大的 Clawd。</p></div>
+      <div class="legend" id="legend"></div><p class="bottom-note">相同的碰一碰，慢慢合成大Clawd。</p>
+    </section>
+  </div>
+</main>
+<dialog id="account" aria-labelledby="account-title"><button class="close" id="close" aria-label="关闭身份选择">✕</button><h3 id="account-title">让下一局，登上榜单</h3><p>不加入也能继续玩。选择一个身份，让下一局成绩参与排名。</p><button class="primary wide" id="linuxdo">用 LINUX DO 登录</button><p>使用社区用户名，最佳成绩跟随账号。</p><label for="name">或者，起个游客名</label><input id="name" maxlength="12" placeholder="2–12 个字"><button class="wide" id="guest">以游客身份加入</button><p>游客身份仅保存在这个浏览器。</p><p class="notice">当前本地局不能补交。局中登录将离开页面，建议打完这局后再加入。</p><p class="feedback" id="feedback" role="status"></p><button class="wide link" id="keep-playing">先继续玩</button></dialog>
+<dialog id="info" aria-labelledby="info-title"><button class="close" id="info-close" aria-label="关闭说明">✕</button><h3 id="info-title">三步就会玩</h3><div id="info-body"></div><button class="primary wide" id="info-ok">知道了</button></dialog>
+<script type="module">
+  import { drawCrabIcon } from '../../../src/crabs.js';
+  const $ = (id) => document.getElementById(id);
+  let scene = 'first', drops = 0, dismissed = false;
+  for (const [i,name] of ['小Clawd','爱心','咖啡','眼镜','墨镜','???'].entries()) {
+    const item = document.createElement('div'); item.className='legend-item';
+    const canvas=document.createElement('canvas'); canvas.dataset.crab=String(i+1);canvas.dataset.w='30';canvas.dataset.h='28';
+    const label=document.createElement('span');label.textContent=name;item.append(canvas,label);$('legend').append(item);
+  }
+  for (const canvas of document.querySelectorAll('[data-crab]')) drawCrabIcon(canvas,Number(canvas.dataset.crab),Number(canvas.dataset.w),Number(canvas.dataset.h),Math.min(devicePixelRatio||1,2));
+  function render() {
+    for (const b of document.querySelectorAll('[data-scene]')) b.setAttribute('aria-pressed',String(b.dataset.scene===scene));
+    $('offline').hidden=scene!=='offline';$('result').hidden=scene!=='result';
+    $('first-call').hidden=drops>0||scene==='result'||scene==='returning';$('stack').hidden=drops===0;
+    $('hint').hidden=dismissed||scene==='returning'||scene==='result';
+    const step=Math.min(drops+1,3);$('hint-title').textContent=`怎么玩 · ${step} / 3`;
+    $('hint-text').textContent=['相同的 Clawd 碰在一起，会合成更大的 Clawd。','看好“下一个”，把相同的放在一起。','落稳后超过危险线 3 秒就结束，尽量留出空间。'][step-1];
+    $('score').textContent=scene==='result'?'2,480':drops?String(drops*24):'0';$('best').textContent=scene==='result'?'2,480':'0';
+    $('identity').textContent=scene==='returning'?'L · fucdd · 本局参与排名':'本地游玩 · 成绩仅保存在本机';
+    $('join').textContent=scene==='returning'?'我的账号':'加入排行榜 →';
+  }
+  function choose(next) { scene=next;drops=['playing','result'].includes(next)?2:0;dismissed=false;render(); }
+  function join() { $('feedback').textContent='';$('account').showModal(); }
+  document.querySelectorAll('[data-scene]').forEach((b)=>b.onclick=()=>{choose(b.dataset.scene);if(scene==='joining')join();});
+  $('drop').onclick=()=>{drops++;$('first-call').hidden=true;if(drops>=4)dismissed=true;render();};
+  $('dismiss').onclick=()=>{dismissed=true;render();};
+  $('again').onclick=()=>{choose('first');dismissed=true;render();};
+  $('join').onclick=()=>scene==='returning'?info('已有账号','<p>已有身份直接开局，保留现有账号管理功能；不再重复新手提示。</p>'):join();
+  $('restart').onclick=()=>choose('first');
+  $('sound').onclick=()=>{const on=$('sound').getAttribute('aria-pressed')!=='true';$('sound').setAttribute('aria-pressed',String(on));$('sound').textContent=on?'音':'静';};
+  $('result-join').onclick=join;$('close').onclick=$('keep-playing').onclick=()=>$('account').close();
+  $('linuxdo').onclick=()=>{$('feedback').textContent='原型演示：正式实现将跳转 LINUX DO；当前未发起授权。';};
+  $('guest').onclick=()=>{$('feedback').textContent=$('name').value.trim().length<2?'请输入 2–12 个字的游客名。':'原型演示：身份建立后，下一局参与排名；当前未注册账号。';};
+  function info(title,body) { $('info-title').textContent=title;$('info-body').innerHTML=body;$('info').showModal(); }
+  $('help').onclick=()=>info('三步就会玩','<p>① 左右瞄准，点击或松手投放。</p><p>② 两只相同的 Clawd 碰到一起会升级。</p><p>③ 落稳后超过危险线 3 秒，游戏结束。</p><p>钳子、彩虹和狂热在首次出现时给出轻提示。</p>');
+  $('rank').onclick=()=>info('排行榜入口','<p>未加入也可浏览榜单；个人排名在加入并完成一局后显示。</p><p>此原型不请求线上数据，正式实现复用现有排行榜。</p>');
+  $('info-close').onclick=$('info-ok').onclick=()=>$('info').close();
+  render();
+</script>
+</body>
+</html>

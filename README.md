@@ -90,7 +90,10 @@
 
 ## 排行榜
 
-- 第一次进入选一种身份：**用 LINUX DO 登录**（名字就是 L 站用户名，换设备成绩不丢），或者**当游客**随便起名（可以重名，自动带 `#编号`，只保存在当前浏览器）。
+- 第一次进入**不用登录或起名就能玩**。前三次投放提供可关闭的轻提示，点 `?` 可以随时查看玩法。
+- 想参与排名时，点「加入排行榜」：**用 LINUX DO 登录**（名字就是 L 站用户名，换设备最佳成绩不丢），或者**当游客**随便起名（可以重名，自动带 `#编号`，只保存在当前浏览器）。
+- 未加入的对局只保留本机最佳成绩，不上榜；中途起游客名不会重置棋盘，也不能补交旧局，从下一局开始申请成绩凭证。局中跳转 LINUX DO 会离开页面，建议打完后再登录。
+- 已有身份开局会显示连接状态，拿到凭证才显示「本局参与排名」；连接失败或登录失效仍可本地游玩。退出／切换身份不会把当前局转交给新账号。
 - 游客之后登录 L 站，成绩会合并到 L 站账号；点左上角的名字可以改名、绑定 L 站或退出。
 - 每人只计最佳成绩；游戏结束时显示你的全球排名。
 - 后端是 Cloudflare Workers + D1，自带防刷校验。部署方法见 [`leaderboard/README.md`](leaderboard/README.md)。
@@ -184,7 +187,7 @@ Scoring: merging two level-k Clawds scores **2^k**. Balance was tuned with simul
 
 ## Leaderboard
 
-Players either log in with LINUX DO (their forum username, works across devices) or play as a guest with any name (duplicates allowed, shown with a `#1234` tag; guests can later log in and keep their scores). Each player's best score is ranked. The backend is Cloudflare Workers + D1, with single-use game sessions, plausibility checks on elapsed time and score, and rate limits. See [`leaderboard/README.md`](leaderboard/README.md) to deploy it, then set `LEADERBOARD_API` in [`src/config.js`](src/config.js). Without it, the game runs offline.
+Start playing immediately without an account. A dismissible first-run guide explains the controls; the `?` button opens the rules. To rank future games, join with LINUX DO (your forum username, works across devices) or choose a guest name (duplicates allowed, shown with a `#1234` tag). Joining midway keeps the current board but does not upload that local game; ranking starts with the next game after a session ticket is received. Failed connections or expired logins never block local play. Each player's best score is ranked. The backend is Cloudflare Workers + D1, with single-use game sessions, plausibility checks on elapsed time and score, and rate limits. See [`leaderboard/README.md`](leaderboard/README.md) to deploy it, then set `LEADERBOARD_API` in [`src/config.js`](src/config.js). Without it, the game runs offline.
 
 ## Run locally
 

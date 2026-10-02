@@ -66,7 +66,13 @@ export const leaderboard = {
   enabled: Boolean(apiBase),
   player: loadPlayer(), // { id, name, tag, linuxdo, avatar, trustLevel, token }
   session: null, // Promise<sessionId | null> for the game in progress
+  round: null, // ticket and identity captured when this round starts
   onUnauthorized: null, // called when the stored token is no longer valid
+
+  get sessionStatus() {
+    return this.round?.player?.token === this.player?.token && this.round?.player
+      ? this.round.status : 'local';
+  },
 
   save(player, token = this.player?.token) {
     this.player = { ...player, token };
@@ -76,6 +82,8 @@ export const leaderboard = {
 
   forget() {
     this.player = null;
+    this.round = null;
+    this.session = null;
     localStorage.removeItem(PLAYER_KEY);
   },
 
@@ -125,35 +133,52 @@ export const leaderboard = {
   // Refreshes the cached profile (e.g. a guest who logged in on another device).
   async refresh() {
     if (!this.player) return;
+    const token = this.player.token;
     try {
-      const me = await request('/api/me', { token: this.player.token });
+      const me = await request('/api/me', { token });
+      if (this.player?.token !== token) return;
       this.save(me.player);
     } catch (err) {
-      if (err.status === 401) this.onUnauthorized?.();
+      if (err.status === 401 && this.player?.token === token) this.onUnauthorized?.();
     }
   },
 
   // Asks the server for a ticket for the game that is starting now.
   startSession() {
+    const round = this.round = { player: this.player, status: 'local', promise: null };
     if (!this.enabled || !this.player) {
       this.session = null;
-      return;
+      return Promise.resolve(null);
     }
-    this.session = request('/api/session', { method: 'POST', token: this.player.token })
-      .then((d) => d.sessionId)
+    round.status = 'pending';
+    this.session = round.promise = request('/api/session', { method: 'POST', token: round.player.token })
+      .then((d) => {
+        round.status = d.sessionId ? 'online' : 'offline';
+        return d.sessionId || null;
+      })
       .catch((err) => {
-        if (err.status === 401) this.onUnauthorized?.();
+        round.status = 'offline';
+        if (err.status === 401 && this.player?.token === round.player.token) this.onUnauthorized?.();
         return null;
       });
+    return round.promise;
   },
 
   async submit({ score, drops, maxLevel }) {
-    const sessionId = await this.session;
-    this.session = null;
+    const round = this.round;
+    if (!round?.player || round.player.token !== this.player?.token || round.submitted) {
+      throw new LeaderboardError('no_session', '本局为本地游玩，加入后从下一局开始参与排名');
+    }
+    round.submitted = true;
+    const sessionId = await round.promise;
+    if (this.round === round) this.session = null;
     if (!sessionId) throw new LeaderboardError('no_session', '这局没拿到成绩凭证（可能离线了），成绩未上传');
+    if (round.player.token !== this.player?.token) {
+      throw new LeaderboardError('no_session', '本局身份已改变，成绩未上传');
+    }
     return request('/api/score', {
       method: 'POST',
-      token: this.player.token,
+      token: round.player.token,
       body: { sessionId, score, drops, maxLevel },
     });
   },

@@ -101,3 +101,109 @@ test('a LAN page cannot opt into API override', async (t) => {
   await leaderboard.top();
   assert.equal(calls[0].url, `${LEADERBOARD_API}/api/leaderboard?limit=20`);
 });
+
+test('joining midway leaves the current local round ineligible until restart', async (t) => {
+  const { leaderboard, calls } = await client(t, 'http://localhost:5173/?api=http://localhost:8787');
+  await leaderboard.startSession();
+  leaderboard.save({ id: 'joined', name: 'Joined' }, 'joined-token');
+  assert.equal(leaderboard.sessionStatus, 'local');
+  await assert.rejects(leaderboard.submit({ score: 20, drops: 2, maxLevel: 2 }), { code: 'no_session' });
+  assert.equal(calls.length, 0);
+});
+
+test('new round reports pending then online only after receiving its ticket', async (t) => {
+  const { leaderboard } = await client(t, 'http://localhost:5173/');
+  leaderboard.save({ id: 'joined', name: 'Joined' }, 'joined-token');
+  let resolve;
+  t.mock.method(globalThis, 'fetch', () => new Promise((r) => { resolve = r; }));
+  const pending = leaderboard.startSession();
+  assert.equal(leaderboard.sessionStatus, 'pending');
+  resolve(Response.json({ sessionId: 'test-session' }));
+  await pending;
+  assert.equal(leaderboard.sessionStatus, 'online');
+});
+
+test('a failed ticket allows a local round without losing the account', async (t) => {
+  const { leaderboard } = await client(t, 'http://localhost:5173/');
+  leaderboard.save({ id: 'joined', name: 'Joined' }, 'joined-token');
+  t.mock.method(globalThis, 'fetch', async () => { throw new Error('network unavailable'); });
+  await leaderboard.startSession();
+  assert.equal(leaderboard.sessionStatus, 'offline');
+  assert.equal(leaderboard.player.id, 'joined');
+});
+
+test('a ticket from an earlier identity cannot be submitted as a new identity', async (t) => {
+  const { leaderboard } = await client(t, 'http://localhost:5173/');
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    requests.push({ url, options });
+    return Response.json({ sessionId: 'old-ticket' });
+  });
+  leaderboard.save({ id: 'old', name: 'Old' }, 'old-token');
+  await leaderboard.startSession();
+  leaderboard.save({ id: 'new', name: 'New' }, 'new-token');
+  assert.equal(leaderboard.sessionStatus, 'local');
+  await assert.rejects(leaderboard.submit({ score: 20, drops: 2, maxLevel: 2 }), { code: 'no_session' });
+  assert.equal(requests.length, 1);
+});
+
+test('a late failed session cannot replace the new round or sign out a new identity', async (t) => {
+  const { leaderboard } = await client(t, 'http://localhost:5173/');
+  let resolveOld;
+  let unauthorized = 0;
+  leaderboard.onUnauthorized = () => { unauthorized++; };
+  t.mock.method(globalThis, 'fetch', () => new Promise((resolve) => { resolveOld = resolve; }));
+  leaderboard.save({ id: 'old', name: 'Old' }, 'old-token');
+  const old = leaderboard.startSession();
+  leaderboard.save({ id: 'new', name: 'New' }, 'new-token');
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ sessionId: 'new-ticket' }));
+  await leaderboard.startSession();
+  resolveOld(Response.json({ message: 'expired' }, { status: 401 }));
+  await old;
+  assert.equal(leaderboard.sessionStatus, 'online');
+  assert.equal(unauthorized, 0);
+});
+
+test('score submission retains its own ticket and token while a new round starts', async (t) => {
+  const { leaderboard } = await client(t, 'http://localhost:5173/');
+  leaderboard.save({ id: 'player', name: 'Player' }, 'player-token');
+  let resolveOld;
+  t.mock.method(globalThis, 'fetch', () => new Promise((resolve) => { resolveOld = resolve; }));
+  leaderboard.startSession();
+  const submitted = leaderboard.submit({ score: 20, drops: 2, maxLevel: 2 });
+  const requests = [];
+  t.mock.method(globalThis, 'fetch', async (url, options) => {
+    requests.push({ url, options });
+    return Response.json(url.endsWith('/api/session') ? { sessionId: 'new-ticket' } : { rank: 1 });
+  });
+  await leaderboard.startSession();
+  resolveOld(Response.json({ sessionId: 'old-ticket' }));
+  await submitted;
+  assert.equal(leaderboard.sessionStatus, 'online');
+  assert.equal(await leaderboard.session, 'new-ticket');
+  const request = requests.find((r) => r.url.endsWith('/api/score'));
+  assert.equal(JSON.parse(request.options.body).sessionId, 'old-ticket');
+  assert.equal(request.options.headers.Authorization, 'Bearer player-token');
+});
+
+test('expired login is invalidated without making the round eligible', async (t) => {
+  const { leaderboard } = await client(t, 'http://localhost:5173/');
+  leaderboard.save({ id: 'expired', name: 'Expired' }, 'expired-token');
+  leaderboard.onUnauthorized = () => leaderboard.forget();
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ message: 'expired' }, { status: 401 }));
+  await leaderboard.startSession();
+  assert.equal(leaderboard.player, null);
+  assert.equal(leaderboard.sessionStatus, 'local');
+});
+
+test('a delayed profile refresh cannot restore a logged-out identity', async (t) => {
+  const { leaderboard } = await client(t, 'http://localhost:5173/');
+  leaderboard.save({ id: 'old', name: 'Old' }, 'old-token');
+  let resolve;
+  t.mock.method(globalThis, 'fetch', () => new Promise((r) => { resolve = r; }));
+  const pending = leaderboard.refresh();
+  leaderboard.forget();
+  resolve(Response.json({ player: { id: 'old', name: 'Old' } }));
+  await pending;
+  assert.equal(leaderboard.player, null);
+});
