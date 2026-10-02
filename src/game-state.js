@@ -1,7 +1,8 @@
 import { World } from './physics.js';
+import { GameplayRandom } from './random.js';
+export { CLASSIC_RULES_VERSION as RULES_VERSION } from './rules.js';
 
 export const SCHEMA_VERSION = 1;
-export const RULES_VERSION = 'classic-1';
 const fields = ['score','bestAtStart','recordShown','time','visualTime','drops','maxLevel','current','next',
   'aimX','cooldown','danger','warning','combo','feverMeter','feverTime','claws'];
 const bodyFields = ['level','x','y','angle','vx','vy','w','sleeping','stillTime','restX','restY','restAngle','born','landedFor'];
@@ -11,6 +12,7 @@ function requireValue(ok) { if (!ok) throw new Error('invalid_snapshot'); }
 
 export function validateGameState(s) {
   requireValue(s && typeof s === 'object');
+  if (Object.hasOwn(s, 'gameplayRandom')) GameplayRandom.fromSnapshot(s.gameplayRandom);
   for (const key of ['score','bestAtStart','drops','combo']) requireValue(number(s[key],0,1e9,true));
   for (const key of ['time','visualTime']) requireValue(number(s[key],0,1e9));
   requireValue(typeof s.recordShown === 'boolean');
@@ -43,12 +45,14 @@ export function captureGame(g) {
   const contacts = g.world.contacts.filter(c => (c.a === g.world.wall || indexes.has(c.a)) && indexes.has(c.b))
     .map(c => ({ a: c.a === g.world.wall ? -1 : indexes.get(c.a), b:indexes.get(c.b),
       ...pick(c,['ia','ib','nx','ny','pen','px','py','Pn','Pt']) }));
-  return validateGameState({ ...pick(g,fields), lastMergeAt: Number.isFinite(g.lastMergeAt) ? g.lastMergeAt : null,
+  return validateGameState({ ...pick(g,fields), gameplayRandom:g.gameplayRandom.snapshot(), lastMergeAt: Number.isFinite(g.lastMergeAt) ? g.lastMergeAt : null,
     seen:[...g.seen], bodies:g.world.bodies.map(b => pick(b,bodyFields)), contacts });
 }
 
 export function restoreGame(g, state) {
   validateGameState(state);
+  const gameplayRandom = Object.hasOwn(state, 'gameplayRandom')
+    ? GameplayRandom.fromSnapshot(state.gameplayRandom) : g.gameplayRandom;
   const world = new World({ width:400,height:640,gravity:1800 });
   const builder = Object.create(g); builder.world = world; builder.time = state.time;
   for (const data of state.bodies) {
@@ -64,7 +68,7 @@ export function restoreGame(g, state) {
     c.Pn=data.Pn; c.Pt=data.Pt; world.contacts.push(c); world.cache.set(c.key,c);
   }
   // No callbacks or durable writes before validation and reconstruction succeed.
-  g.world = world; Object.assign(g,pick(state,fields));
+  g.world = world; g.gameplayRandom = gameplayRandom; Object.assign(g,pick(state,fields));
   g.lastMergeAt = state.lastMergeAt ?? -Infinity;
   g.best = Math.max(g.best,state.score,state.bestAtStart);
   for (const level of state.seen) g.seen.add(level);

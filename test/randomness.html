@@ -1,0 +1,13 @@
+<!doctype html>
+<html lang="zh-CN">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>T08 随机序列验证</title>
+<style>
+body{background:#17181d;color:#eee;font:15px system-ui;margin:20px}main{max-width:850px;margin:auto}p{line-height:1.6}button{font:inherit;padding:12px 20px}.boards{display:flex;gap:16px;flex-wrap:wrap}canvas{max-width:100%}pre{white-space:pre-wrap;overflow-wrap:anywhere}
+</style>
+<main><h1>T08 随机序列验证</h1><p>独立工程验证页，不是每日挑战入口。不接入成绩上传或自动存档。两块棋盘使用相同玩法 seed，其中一块额外绘制、眨眼并生成特效。</p>
+<button id="run">验证 100 次投放</button><p id="status" role="status">等待验证</p>
+<div class="boards"><section><h2>普通绘制</h2><canvas id="quiet"></canvas></section><section><h2>额外特效与绘制</h2><canvas id="busy"></canvas></section></div>
+<pre id="result"></pre></main><script type="module" src="./randomness.mjs"></script>
+</html>

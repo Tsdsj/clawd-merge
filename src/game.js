@@ -1,5 +1,9 @@
 import { World, Body } from './physics.js';
 import { captureGame, restoreGame } from './game-state.js';
+import { GameplayRandom } from './random.js';
+import { chooseClassicLevel } from './drop-sequence.js';
+import { RULES, DROP_COOLDOWN, COMBO_WINDOW, FEVER_MAX, FEVER_TIME, CLAW_LEVEL, MAX_CLAWS, KING_BONUS } from './rules.js';
+export { RULES } from './rules.js';
 import { readPreference, writePreference } from './storage.js';
 import {
   MAX_LEVEL,
@@ -22,31 +26,6 @@ export const LINE_Y = 140; // warning line
 const DROP_Y = 70;
 const STEP = 1 / 120;
 const MAX_STEPS = 12;
-const DROP_COOLDOWN = 0.5;
-// Gameplay rules (exported so balance can be tuned/tested in one place).
-// Balance was tuned with simulated players (always-same-spot spammer vs. a
-// lookahead player): exponential points make high-level merges — which need
-// planning — worth far more than lucky low-level cascades.
-export const RULES = {
-  dangerGrace: 1.2, // a freshly spawned Clawd doesn't count toward game over yet
-  gameOverTime: 3, // seconds a settled Clawd may stay above the line before game over
-  // Clawds knocked into the air by a big merge don't count while airborne; a
-  // Clawd counts once it has rested on the pile (connected to the ground) this long.
-  landedTime: 0.15,
-  flyingSpeed: 250, // world units / s — faster than this is still in flight
-  spawnWeights: [22, 22, 22, 18, 16], // only the 5 smallest Clawds are ever dropped
-  points: (k) => 2 ** k, // merging a pair of level-k Clawds
-  comboStep: 0.25, // each chained merge adds +25%…
-  maxComboMult: 2, // …up to ×2
-};
-const COMBO_WINDOW = 1.2; // merges closer than this chain into a combo
-const FEVER_MAX = 180; // meter needed for fever
-const FEVER_TIME = 8;
-const RAINBOW_CHANCE = 0.035;
-const RAINBOW_MIN_DROPS = 15;
-const CLAW_LEVEL = 7; // first time per game you create each level ≥ this, you earn a claw
-const MAX_CLAWS = 3;
-const KING_BONUS = 2000;
 const BEST_KEY = 'clawd-merge:best';
 const SEEN_KEY = 'clawd-merge:seen';
 const FONT = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif';
@@ -89,10 +68,11 @@ function loadSeen() {
 }
 
 export class Game {
-  constructor(canvas, events = {}) {
+  constructor(canvas, events = {}, { seed } = {}) {
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.events = events;
+    this.gameplayRandom = new GameplayRandom(seed);
     this.world = new World({ width: WORLD_W, height: WORLD_H, gravity: 1800 });
     this.scale = 1;
     this.dpr = 1;
@@ -152,21 +132,7 @@ export class Game {
 
   // Early on only the tiniest Clawds drop; bigger ones unlock as you progress.
   randomLevel() {
-    if (
-      this.drops >= RAINBOW_MIN_DROPS &&
-      this.current !== RAINBOW &&
-      Math.random() < RAINBOW_CHANCE
-    ) {
-      return RAINBOW;
-    }
-    const cap = clamp(this.maxLevel, 3, RULES.spawnWeights.length);
-    const weights = RULES.spawnWeights.slice(0, cap);
-    let r = Math.random() * weights.reduce((s, w) => s + w, 0);
-    for (let i = 0; i < weights.length; i++) {
-      r -= weights[i];
-      if (r < 0) return i + 1;
-    }
-    return 1;
+    return chooseClassicLevel(() => this.gameplayRandom.next(), this);
   }
 
   resize(cssW, cssH, dpr) {

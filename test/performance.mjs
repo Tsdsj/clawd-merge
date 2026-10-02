@@ -29,7 +29,7 @@ button.addEventListener('click', async () => {
   try {
     for (const name of ['light', 'dense', 'continuous-merges']) {
       status.textContent = `运行中：${name}`;
-      const g = new Game(canvas);
+      const g = new Game(canvas, {}, { seed: 20261002 });
       g.best = g.bestAtStart = Number.MAX_SAFE_INTEGER;
       g.seen = new Set(Array.from({ length: 12 }, (_, i) => i));
       const width = Math.min(400, innerWidth - 40);
