@@ -160,3 +160,20 @@ test("an unread existing future record cannot be overwritten by editing or retry
   assert.equal(t.model.prefs.haptics, true);
   assert.equal(t.model.status, "invalid");
 });
+test("retry never overwrites a newer unknown schema from another tab; failed explicit reset can retry", () => {
+  const t = setup(null, { failWrite: true });
+  t.model.update({ particles: false });
+  const future = JSON.stringify({ schemaVersion: 9 });
+  t.external(future);
+  t.flags.failWrite = false;
+  t.model.retry();
+  assert.equal(t.raw, future);
+  assert.equal(t.model.status, "invalid");
+  t.flags.failWrite = true;
+  t.model.reset();
+  assert.equal(t.raw, future);
+  t.flags.failWrite = false;
+  t.model.retry();
+  assert.equal(JSON.parse(t.raw).schemaVersion, 1);
+  assert.equal(JSON.parse(t.raw).particles, true);
+});

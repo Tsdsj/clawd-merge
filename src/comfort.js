@@ -54,6 +54,7 @@ export class ComfortSettings {
       status: "default",
       dirty: false,
       blocked: false,
+      replacePending: false,
       unread: true,
       undo: null,
       listeners: new Set(),
@@ -120,17 +121,39 @@ export class ComfortSettings {
     }
   }
   save() {
-    if (this.unread) {
+    if (this.unread && !this.replacePending) {
       this.status = "read-error";
       return false;
     }
-    if (this.blocked) {
+    if (this.blocked && !this.replacePending) {
       this.status = "invalid";
       return false;
+    }
+    if (!this.replacePending) {
+      let raw;
+      try {
+        if (!this.storage) throw Error();
+        raw = this.storage.getItem(COMFORT_KEY);
+      } catch {
+        this.unread = true;
+        this.status = "read-error";
+        return false;
+      }
+      try {
+        if (raw !== null)
+          validateComfort(JSON.parse(raw.length <= 2048 ? raw : "invalid"));
+      } catch {
+        this.blocked = true;
+        this.status = "invalid";
+        return false;
+      }
     }
     try {
       if (!this.storage) throw Error();
       this.storage.setItem(COMFORT_KEY, JSON.stringify(this.prefs));
+      this.replacePending = false;
+      this.blocked = false;
+      this.unread = false;
       this.dirty = false;
       this.status = "saved";
       return true;
@@ -154,7 +177,7 @@ export class ComfortSettings {
   }
   retry() {
     if (this.dirty) {
-      if (this.unread || this.blocked) {
+      if ((this.unread || this.blocked) && !this.replacePending) {
         const live = this.prefs;
         this.read();
         this.prefs = live;
@@ -164,6 +187,7 @@ export class ComfortSettings {
     this.emit();
   }
   reset() {
+    this.replacePending = true;
     this.undo = this.prefs;
     this.prefs = Object.freeze(comfortDefaults());
     this.blocked = false;
@@ -175,6 +199,7 @@ export class ComfortSettings {
   undoReset() {
     if (!this.undo) return;
     this.prefs = this.undo;
+    this.replacePending = false;
     this.undo = null;
     this.dirty = true;
     this.save();
