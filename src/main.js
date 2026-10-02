@@ -12,6 +12,7 @@ import { createChallengeUI } from './challenge-ui.js';
 import { createChallengeShareUI } from './challenge-share-ui.js';
 import {ComfortSettings} from './comfort.js';
 import {createComfortUI} from './comfort-ui.js';
+import {avatarEl,nameEl,renderPlayerChip} from './player-identity.js';
 const comfortSettings=new ComfortSettings();
 let comfortPanel;
 
@@ -247,61 +248,18 @@ function toast(text, duration = 2600) {
   toastTimer = setTimeout(() => el.classList.add('hidden'), duration);
 }
 
-// LINUX DO avatar, or an orange dot for guests.
-function avatarEl(p) {
-  if (p.linuxdo && p.avatar) {
-    const img = document.createElement('img');
-    img.className = 'avatar';
-    img.src = p.avatar;
-    img.alt = '';
-    img.loading = 'lazy';
-    img.referrerPolicy = 'no-referrer';
-    return img;
-  }
-  const dot = document.createElement('span');
-  dot.className = 'chip-dot';
-  return dot;
-}
-
-// Name with a muted #tag for guests and a small "L" badge for LINUX DO accounts.
-function nameEl(p, className) {
-  const span = document.createElement('span');
-  span.className = className;
-  span.append(p.name);
-  if (p.tag) {
-    const tag = document.createElement('span');
-    tag.className = 'tag';
-    tag.textContent = `#${p.tag}`;
-    span.append(tag);
-  }
-  if (p.linuxdo) {
-    const badge = document.createElement('span');
-    badge.className = 'ld-badge';
-    badge.textContent = 'L';
-    badge.title = `LINUX DO · 信任等级 ${p.trustLevel ?? 0}`;
-    span.append(badge);
-  }
-  return span;
-}
-
 function showPlayer() {
   daily?.identityChanged();
   outbox?.wakeIdentity();
   const { player, enabled } = leaderboard;
   const chip = $('player-chip');
-  chip.replaceChildren();
-  if (player) chip.append(avatarEl(player), nameEl(player, 'chip-name'));
+  renderPlayerChip(chip,player);
   chip.classList.toggle('hidden', !player || !enabled);
   $('join-btn').classList.toggle('hidden', Boolean(player) || !enabled);
   $('rank-btn').classList.toggle('hidden', !enabled);
   $('over-rank').classList.toggle('hidden', !enabled);
   const state = leaderboard.sessionStatus;
-  $('round-status').textContent = {
-    pending: '正在连接排行榜，本局可继续玩…',
-    online: '本局参与排名',
-    offline: '暂时连不上排行榜，本局为本地游玩。',
-    local: player ? '本局为本地局，下一局再参与排名' : '本地游玩 · 成绩仅保存在本机',
-  }[state];
+  $('round-status').textContent = leaderboard.sessionMessage;
   $('round-status').classList.toggle('connection-error', state === 'offline');
   if (game.over) showLocalResult();
 }
@@ -776,7 +734,7 @@ window.addEventListener('storage',event=>{
 window.addEventListener('online',()=>outbox.wakeOnline());
 window.addEventListener('pagehide',()=>outbox.stop());
 window.addEventListener('pageshow',event=>{if(event.persisted)outbox.start();});
-daily=createChallengeUI({comfort:()=>comfortSettings.effects,onHelp:formal=>comfortPanel.open({mode:'daily',formal}),onShare:model=>void sharing.result(model),scope:leaderboard.saveScope,identity:()=>{const p=leaderboard.uploadPlayer();return p?`${p.linuxdo?'L':'游客'} · ${displayName(p)}`:'';},
+daily=createChallengeUI({comfort:()=>comfortSettings.effects,onHelp:formal=>comfortPanel.open({mode:'daily',formal}),onShare:model=>void sharing.result(model),scope:leaderboard.saveScope,
   getPlayer:()=>leaderboard.uploadPlayer(),request:(path,options)=>leaderboard.challengeRequest(path,options),
   requestIdentity:()=>askName(),requestAccount:()=>{leaderboard.player=leaderboard.uploadPlayer();leaderboard.player?openAccount():askName();},
   classicSummary:()=>game.drops&&!game.over?`经典局仍保留 · ${game.score} 分，可随时切回继续。`:'经典模式与挑战使用独立存档。',

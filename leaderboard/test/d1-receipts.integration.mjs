@@ -54,7 +54,9 @@ try {
   const registered = await api('/api/register', { body: { name: 'D1隔离验证' } });
   assert.equal(registered.status, 201);
   const token = registered.data.token;
-  const sessionId = (await api('/api/session', { token, body: {} })).data.sessionId;
+  const legacyEmpty=await mf.dispatchFetch('http://localhost/api/session',{method:'POST',headers:{Authorization:`Bearer ${token}`},body:''});
+  assert.equal(legacyEmpty.status,200);assert.ok((await legacyEmpty.json()).sessionId);
+  const sessionId = (await api('/api/session', { token, body: {mode:'classic'} })).data.sessionId;
   const body = { sessionId, score: 30, drops: 1, maxLevel: 3 };
   const results = await Promise.all(Array.from({ length: 8 }, () => api('/api/score', { token, body })));
   for (const result of results) {

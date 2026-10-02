@@ -365,7 +365,15 @@ async function exchangeLoginCode(request, env) {
 // ---------- game ----------
 
 async function startSession(request, env) {
-  if(request.body){const body=await readJson(request);if(body?.mode!==undefined&&body.mode!=='classic'||body?.challengeId!==undefined)throw new ApiError(400,'wrong_mode','挑战需使用独立开局接口');}
+  // Older clients send an empty POST; Cloudflare may expose it as a non-null stream.
+  const raw = await request.text();
+  if (raw.trim()) {
+    let body;
+    try { body = JSON.parse(raw); } catch { throw new ApiError(400,'bad_request','请求格式不对'); }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) throw new ApiError(400,'bad_request','请求格式不对');
+    if ((body.mode !== undefined && body.mode !== 'classic') || body.challengeId !== undefined)
+      throw new ApiError(400,'wrong_mode','挑战需使用独立开局接口');
+  }
   const player = await authenticate(request, env);
   await rateLimit(env.DB, `session:${player.id}`, LIMITS.session, '操作太频繁了，请稍后再试');
   const now = Date.now();

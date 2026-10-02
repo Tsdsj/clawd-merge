@@ -642,3 +642,6 @@
   border: 1px solid #48455e;
   border-radius: 6px;
 }
+
+#daily-identity.player-chip { flex:0 1 auto; max-width:100%; min-height:30px; text-decoration:none; }
+#daily-identity .chip-name {min-width:0;}

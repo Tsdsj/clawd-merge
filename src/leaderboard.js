@@ -90,6 +90,16 @@ export const leaderboard = {
       ? this.round.status : 'local';
   },
 
+  get sessionFailure() { return this.sessionStatus === 'offline' ? this.round?.errorCode || 'unknown' : null; },
+  get sessionMessage() {
+    const status=this.sessionStatus;
+    if(status==='pending')return '正在确认本局上榜资格，可继续玩…';
+    if(status==='online')return '本局参与排名';
+    if(status==='local')return this.player?'本局为本地局，下一局再参与排名':'本地游玩 · 成绩仅保存在本机';
+    const reason={offline:'开局时连接失败',timeout:'开局确认超时',rate_limited:'开局请求过于频繁',unauthorized:'开局时登录已失效'}[this.sessionFailure];
+    return reason?`${reason}，本局为本地局；新开一局可重试上榜。`:'本局未取得上榜资格，仅保存在本机；新开一局可重试上榜。';
+  },
+
   save(player, token = this.player?.token) {
     this.player = { ...player, token };
     this.memoryOnly=!writePreference(PLAYER_KEY, JSON.stringify(this.player));
@@ -174,14 +184,16 @@ export const leaderboard = {
       return Promise.resolve(null);
     }
     round.status = 'pending';
-    this.session = round.promise = request('/api/session', { method: 'POST', token: round.player.token,timeoutMs:8000 })
+    this.session = round.promise = request('/api/session', { method: 'POST', token: round.player.token,body:{mode:'classic'},timeoutMs:8000 })
       .then((d) => {
         round.sessionId = typeof d.sessionId==='string'&&d.sessionId.length>0&&d.sessionId.length<=128 ? d.sessionId : null;
         round.status = round.sessionId ? 'online' : 'offline';
+        if(!round.sessionId)round.errorCode='bad_response';
         return round.sessionId;
       })
       .catch((err) => {
         round.status = 'offline';
+        round.errorCode=err.code || 'unknown';
         if (err.status === 401 && this.player?.token === round.player.token) this.onUnauthorized?.();
         return null;
       });

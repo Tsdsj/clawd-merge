@@ -9,10 +9,10 @@ import { SETTLE_SECONDS } from "./challenge.js";
 import { ChallengeApi } from "./challenge-api.js";
 import { ChallengeUploads } from "./challenge-uploads.js";
 import { shareResult } from "./challenge-share.js";
+import {renderPlayerChip} from "./player-identity.js";
 
 export function createChallengeUI({
   scope,
-  identity,
   classicSummary,
   onEnter,
   onExit,
@@ -252,7 +252,7 @@ export function createChallengeUI({
     show("hub", view === "hub");
     show("play", view === "play");
     show("result", view === "result");
-    $("identity").textContent = identity() || "选择身份 · 游客也可正式挑战";
+    renderPlayerChip($("identity"),getPlayer());
     $("date").textContent = definition
       ? dateLabel(definition.challengeId)
       : "今日挑战";

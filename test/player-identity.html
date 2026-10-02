@@ -1,0 +1,8 @@
+<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>身份组件验收</title><link rel="stylesheet" href="../src/style.css"><link rel="stylesheet" href="../src/challenge.css"><style>body{display:block;overflow:auto;padding:20px}main{max-width:360px;margin:auto}section{margin:24px 0}h2{font-size:16px;margin:10px 0}.daily-identity{display:flex}#result{white-space:pre-wrap;margin:20px 0}</style><main><h1>共享身份组件</h1><section><h2>经典身份</h2><button class="player-chip" id="classic"></button></section><section><h2>每日挑战</h2><div class="daily-identity"><button id="daily-identity"></button><button class="link-btn">今日榜</button></div></section><section><h2>游客</h2><button id="guest"></button></section><section><h2>头像失败</h2><button id="broken"></button></section><p id="result"></p></main><script type="module">
+import{renderPlayerChip}from'../src/player-identity.js';
+const p={id:'fixture',name:'很长的中文昵称也应保留头像',linuxdo:true,avatar:'../icons/icon-192.png',trustLevel:2};
+for(const id of ['classic','daily-identity']){const b=document.getElementById(id);renderPlayerChip(b,p);const img=b.firstChild;renderPlayerChip(b,{...p});if(img!==b.firstChild)throw Error('Avatar replaced during unchanged refresh');}
+renderPlayerChip(document.getElementById('guest'),{id:'guest',name:'橙色钳子',tag:'0123'});
+renderPlayerChip(document.getElementById('broken'),{...p,name:'图片失败回退',avatar:'data:image/png;base64,broken'});
+document.getElementById('result').textContent='PASS：经典与每日共用渲染；相同身份刷新不重建头像。';
+</script></html>

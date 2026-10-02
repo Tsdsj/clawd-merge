@@ -276,3 +276,10 @@ test('LINUX DO reauthentication omits an expired token, while guest binding stil
  globalThis.location.assign=()=>{};await guest.leaderboard.loginWithLinuxdo();
  assert.equal(guest.calls[0].headers.Authorization,`Bearer ${oldPlayer.token}`);
 });
+
+test('classic start sends an explicit JSON mode and preserves failure cause separately from public rank access',async(t)=>{
+ const {leaderboard,calls}=await client(t,'http://localhost:5173/');leaderboard.save({id:'a',name:'A'},'token');
+ t.mock.method(globalThis,'fetch',async(url,options)=>{calls.push({url,...options});return Response.json({error:'rate_limited',message:'限流'},{status:429});});
+ await leaderboard.startSession();assert.deepEqual(JSON.parse(calls[0].body),{mode:'classic'});assert.equal(leaderboard.sessionFailure,'rate_limited');
+ t.mock.method(globalThis,'fetch',async()=>Response.json({entries:[],total:0}));await leaderboard.top();assert.equal(leaderboard.sessionStatus,'offline');assert.equal(leaderboard.sessionFailure,'rate_limited');assert.match(leaderboard.sessionMessage,/开局请求过于频繁/);assert.equal(leaderboard.sessionMessage.includes('连不上排行榜'),false);
+});

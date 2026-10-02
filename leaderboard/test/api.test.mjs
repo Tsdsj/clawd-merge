@@ -479,3 +479,15 @@ test('guest binding combines daily allowance and best history without changing c
   assert.equal(board.total,1);assert.equal(board.me.best,100);
   assert.equal((await call('GET','/api/me',{token:merged.token})).data.best,0);
 });
+
+test('classic session accepts legacy empty POST streams while rejecting malformed and challenge payloads',async()=>{
+ const {token}=await register('空开局兼容');
+ for(const body of ['', '   ', '{}']){
+  const r=await worker.fetch(new Request('https://api.test/api/session',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body}),env);
+  assert.equal(r.status,200);assert.ok((await r.json()).sessionId);
+ }
+ for(const body of ['{bad','null','[]','{"mode":"formal"}','{"challengeId":"2026-10-03"}']){
+  const r=await worker.fetch(new Request('https://api.test/api/session',{method:'POST',headers:{Authorization:`Bearer ${token}`,'Content-Type':'application/json'},body}),env);
+  assert.equal(r.status,400,body);
+ }
+});
