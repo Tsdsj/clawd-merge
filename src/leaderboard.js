@@ -1,6 +1,7 @@
 // Client for the leaderboard Worker: guest names or LINUX DO login (the browser
 // keeps a secret token in localStorage), per-game sessions and score submission.
 import { LEADERBOARD_API } from './config.js';
+import { readPreference, writePreference, getStorage } from './storage.js';
 
 const isLoopback = (hostname) => ['localhost', '127.0.0.1', '[::1]'].includes(hostname);
 const localDevelopment = ['http:', 'https:'].includes(location.protocol) && isLoopback(location.hostname);
@@ -35,13 +36,13 @@ export class LeaderboardError extends Error {
   }
 }
 
-async function request(path, { method = 'GET', body, token } = {}) {
+async function request(path, { method = 'GET', body, token, signal } = {}) {
   const headers = {};
   if (body) headers['Content-Type'] = 'application/json';
   if (token) headers.Authorization = `Bearer ${token}`;
   let res;
   try {
-    res = await fetch(apiBase + path, { method, headers, body: body && JSON.stringify(body) });
+    res = await fetch(apiBase + path, { method, headers, body: body && JSON.stringify(body), signal });
   } catch {
     throw new LeaderboardError('offline', '连不上排行榜服务器，检查一下网络');
   }
@@ -52,7 +53,7 @@ async function request(path, { method = 'GET', body, token } = {}) {
 
 function loadPlayer() {
   try {
-    const p = JSON.parse(localStorage.getItem(PLAYER_KEY));
+    const p = JSON.parse(readPreference(PLAYER_KEY));
     return p?.token && p?.name ? p : null;
   } catch {
     return null;
@@ -63,6 +64,7 @@ function loadPlayer() {
 export const displayName = (p) => (p.tag ? `${p.name}#${p.tag}` : p.name);
 
 export const leaderboard = {
+  saveScope: `${localDevelopment ? 'dev' : 'production'}:${apiBase || 'offline'}`,
   enabled: Boolean(apiBase),
   player: loadPlayer(), // { id, name, tag, linuxdo, avatar, trustLevel, token }
   session: null, // Promise<sessionId | null> for the game in progress
@@ -76,15 +78,19 @@ export const leaderboard = {
 
   save(player, token = this.player?.token) {
     this.player = { ...player, token };
-    localStorage.setItem(PLAYER_KEY, JSON.stringify(this.player));
+    writePreference(PLAYER_KEY, JSON.stringify(this.player));
     return this.player;
   },
 
   forget() {
+    const token=this.player?.token;
     this.player = null;
     this.round = null;
     this.session = null;
-    localStorage.removeItem(PLAYER_KEY);
+    try {
+      const stored=loadPlayer();
+      if(!stored || stored.token===token)getStorage()?.removeItem(PLAYER_KEY);
+    } catch { /* In-memory logout still takes effect. */ }
   },
 
   async register(name) {
@@ -136,7 +142,7 @@ export const leaderboard = {
     const token = this.player.token;
     try {
       const me = await request('/api/me', { token });
-      if (this.player?.token !== token) return;
+      if (this.player?.token !== token || loadPlayer()?.token !== token) return;
       this.save(me.player);
     } catch (err) {
       if (err.status === 401 && this.player?.token === token) this.onUnauthorized?.();
@@ -153,6 +159,7 @@ export const leaderboard = {
     round.status = 'pending';
     this.session = round.promise = request('/api/session', { method: 'POST', token: round.player.token })
       .then((d) => {
+        round.sessionId = d.sessionId || null;
         round.status = d.sessionId ? 'online' : 'offline';
         return d.sessionId || null;
       })
@@ -162,6 +169,36 @@ export const leaderboard = {
         return null;
       });
     return round.promise;
+  },
+
+  exportSession() {
+    if (!this.round?.player || this.round.player.token !== this.player?.token) return null;
+    return { playerId:this.round.player.id, sessionId:this.round.sessionId || null };
+  },
+
+  async checkSavedSession(ticket) {
+    // A different tab may have signed in since this tab first loaded.
+    this.player = loadPlayer();
+    if (!ticket) return { status:'local' };
+    if (!this.player || this.player.id !== ticket.playerId) return { status:'identity' };
+    if (!ticket.sessionId) return { status:'invalid' };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const token = this.player.token;
+    try {
+      const result = await request(`/api/session/check?sessionId=${encodeURIComponent(ticket.sessionId)}`, {token,signal:controller.signal});
+      if (this.player?.token !== token) return { status:'identity' };
+      return result;
+    } catch (err) {
+      return { status:err.status===401 ? 'identity' : 'network' };
+    } finally { clearTimeout(timer); }
+  },
+
+  restoreSession(ticket) {
+    if (!ticket) { this.round=null;this.session=null;return; }
+    if (!this.player || this.player.id!==ticket.playerId || !ticket.sessionId) throw new Error('identity_changed');
+    this.session=Promise.resolve(ticket.sessionId);
+    this.round={player:this.player,status:'online',sessionId:ticket.sessionId,promise:this.session};
   },
 
   async submit({ score, drops, maxLevel }) {

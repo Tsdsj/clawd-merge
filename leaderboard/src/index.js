@@ -109,6 +109,8 @@ async function route(request, env) {
       return exchangeLoginCode(request, env);
     case 'POST /api/session':
       return startSession(request, env);
+    case 'GET /api/session/check':
+      return checkSession(request, env, url);
     case 'POST /api/score':
       return submitScore(request, env);
     case 'GET /api/leaderboard':
@@ -371,6 +373,17 @@ async function startSession(request, env) {
     env.DB.prepare('INSERT INTO sessions (id, player_id, started_at) VALUES (?, ?, ?)').bind(id, player.id, now),
   ]);
   return json({ sessionId: id });
+}
+
+async function checkSession(request, env, url) {
+  const player = await authenticate(request, env);
+  const id = url.searchParams.get('sessionId');
+  const session = await env.DB.prepare('SELECT started_at, used FROM sessions WHERE id = ? AND player_id = ?')
+    .bind(id || '', player.id).first();
+  const serverNow = Date.now();
+  const expiresAt = session ? session.started_at + SESSION_TTL_MS : null;
+  const status = !session ? 'invalid' : session.used ? 'used' : serverNow >= expiresAt ? 'expired' : 'valid';
+  return json({ status, serverNow, expiresAt }, 200, { 'Cache-Control':'no-store' });
 }
 
 async function submitScore(request, env) {

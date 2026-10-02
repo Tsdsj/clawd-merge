@@ -231,6 +231,23 @@ test('sessions are single-use and required', async () => {
   assert.equal((await call('POST', '/api/score', { token: a.token, body: { ...body, sessionId: s2 } })).status, 400);
 });
 
+test('restoring checks ticket ownership, expiry and usage without consuming or extending it', async () => {
+  const a = await register('续玩甲'), b = await register('续玩乙');
+  const { data } = await call('POST', '/api/session', { token:a.token });
+  const path = `/api/session/check?sessionId=${data.sessionId}`;
+  assert.equal((await call('GET', path)).status, 401);
+  assert.equal((await call('GET', path, { token:b.token })).data.status, 'invalid');
+  const first = await call('GET', path, { token:a.token });
+  assert.equal(first.data.status, 'valid');
+  assert.ok(first.data.expiresAt > first.data.serverNow);
+  const again = await call('GET', path, { token:a.token });
+  assert.equal(again.data.expiresAt, first.data.expiresAt);
+  assert.equal((await call('POST', '/api/score', { token:a.token, body:{ sessionId:data.sessionId,score:20,drops:1,maxLevel:2 } })).status, 200);
+  assert.equal((await call('GET', path, { token:a.token })).data.status, 'used');
+  env.DB.raw.prepare('UPDATE sessions SET used = 0, started_at = ? WHERE id = ?').run(Date.now()-4*3600_000,data.sessionId);
+  assert.equal((await call('GET', path, { token:a.token })).data.status, 'expired');
+});
+
 test('implausible scores are rejected', async () => {
   const a = await register('作弊者');
   assert.equal((await play(a.token, { score: 5000, drops: 200, seconds: 10 })).data.error, 'too_fast');

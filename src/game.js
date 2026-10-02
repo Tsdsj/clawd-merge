@@ -1,4 +1,6 @@
 import { World, Body } from './physics.js';
+import { captureGame, restoreGame } from './game-state.js';
+import { readPreference, writePreference } from './storage.js';
 import {
   MAX_LEVEL,
   RAINBOW,
@@ -80,7 +82,7 @@ function extentOf(level) {
 
 function loadSeen() {
   try {
-    return new Set([1, ...JSON.parse(localStorage.getItem(SEEN_KEY) || '[]')]);
+    return new Set([1, ...JSON.parse(readPreference(SEEN_KEY) || '[]')]);
   } catch {
     return new Set([1]);
   }
@@ -95,7 +97,7 @@ export class Game {
     this.scale = 1;
     this.dpr = 1;
     this.debug = false;
-    this.best = Number(localStorage.getItem(BEST_KEY)) || 0;
+    this.best = Number(readPreference(BEST_KEY)) || 0;
     this.seen = loadSeen();
     this.reset();
   }
@@ -139,6 +141,13 @@ export class Game {
 
   get fever() {
     return this.feverTime > 0;
+  }
+
+  snapshot() { return captureGame(this); }
+  restore(state) {
+    restoreGame(this,state);
+    if(!writePreference(BEST_KEY,String(this.best)))this.persistenceWarning=true;
+    if(!writePreference(SEEN_KEY,JSON.stringify([...this.seen])))this.persistenceWarning=true;
   }
 
   // Early on only the tiniest Clawds drop; bigger ones unlock as you progress.
@@ -385,7 +394,7 @@ export class Game {
     this.score += points;
     if (this.score > this.best) {
       this.best = this.score;
-      localStorage.setItem(BEST_KEY, String(this.best));
+      if(!writePreference(BEST_KEY, String(this.best)))this.persistenceWarning=true;
     }
     this.floatText(`+${points}`, x, y - 10, 16, this.fever ? '#FFD84D' : '#FFFFFF', 0.9);
     if (!this.recordShown && this.bestAtStart > 0 && this.score > this.bestAtStart) {
@@ -399,7 +408,7 @@ export class Game {
 
   discover(level) {
     this.seen.add(level);
-    localStorage.setItem(SEEN_KEY, JSON.stringify([...this.seen]));
+    if(!writePreference(SEEN_KEY, JSON.stringify([...this.seen])))this.persistenceWarning=true;
     this.card = { level, t: 0, dur: 2.2 };
     sfx.discover();
     this.events.onDiscover?.(this.seen);

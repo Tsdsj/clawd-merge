@@ -1,8 +1,9 @@
 // Chiptune-style blips via WebAudio. No audio files needed.
+import { readPreference, writePreference } from './storage.js';
 
 const KEY = 'clawd-merge:sound';
 let ctx = null;
-let enabled = localStorage.getItem(KEY) !== 'off';
+let enabled = readPreference(KEY) !== 'off';
 
 function audio() {
   if (!enabled) return null;
@@ -37,7 +38,7 @@ export const sfx = {
   },
   toggle() {
     enabled = !enabled;
-    localStorage.setItem(KEY, enabled ? 'on' : 'off');
+    writePreference(KEY, enabled ? 'on' : 'off');
     if (enabled) blip(660, { dur: 0.06 });
     return enabled;
   },

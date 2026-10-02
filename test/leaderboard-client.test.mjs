@@ -207,3 +207,47 @@ test('a delayed profile refresh cannot restore a logged-out identity', async (t)
   await pending;
   assert.equal(leaderboard.player, null);
 });
+
+test('restoration validates and adopts the original session without a new ticket or storing token', async (t) => {
+  const { leaderboard } = await client(t, 'http://localhost:5173/');
+  leaderboard.save({ id:'player',name:'Player' },'private-test-token');
+  const calls=[];
+  t.mock.method(globalThis,'fetch',async (url,options)=>{
+    calls.push({url,options});return Response.json({status:'valid',serverNow:100,expiresAt:200});
+  });
+  const ticket={playerId:'player',sessionId:'original-ticket'};
+  assert.equal((await leaderboard.checkSavedSession(ticket)).status,'valid');
+  leaderboard.restoreSession(ticket);
+  assert.equal(await leaderboard.session,'original-ticket');
+  assert.equal(leaderboard.sessionStatus,'online');
+  assert.deepEqual(leaderboard.exportSession(),ticket);
+  assert.equal(JSON.stringify(leaderboard.exportSession()).includes('private-test-token'),false);
+  assert.equal(calls.length,1);
+  assert.ok(calls[0].url.includes('/api/session/check?'));
+  leaderboard.restoreSession(null);
+  assert.equal(leaderboard.sessionStatus,'local');
+});
+
+test('restoration rejects a different account before accessing another players ticket', async (t) => {
+  const { leaderboard,calls } = await client(t,'http://localhost:5173/');
+  leaderboard.save({ id:'other',name:'Other' },'other-token');
+  const ticket={playerId:'original',sessionId:'old-ticket'};
+  assert.equal((await leaderboard.checkSavedSession(ticket)).status,'identity');
+  assert.throws(()=>leaderboard.restoreSession(ticket));
+  assert.equal(calls.length,0);
+});
+
+test('a stale tab cannot overwrite or remove a newer identity saved by another tab', async (t) => {
+  const {leaderboard,storage}=await client(t,'https://tsdsj.github.io/clawd-merge/');
+  leaderboard.save({id:'old',name:'Old'},'old-token');
+  let resolve;
+  t.mock.method(globalThis,'fetch',()=>new Promise(r=>{resolve=r;}));
+  const pending=leaderboard.refresh();
+  const newer=JSON.stringify({id:'new',name:'New',token:'new-token'});
+  storage.set(legacyKey,newer);
+  resolve(Response.json({player:{id:'old',name:'Old'}}));
+  await pending;
+  assert.equal(storage.get(legacyKey),newer);
+  leaderboard.forget();
+  assert.equal(storage.get(legacyKey),newer);
+});

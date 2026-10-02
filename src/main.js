@@ -4,6 +4,8 @@ import { sfx } from './audio.js';
 import { leaderboard, displayName } from './leaderboard.js';
 import { createGuide } from './onboarding.js';
 import { PauseState } from './pause.js';
+import { createSaveFlow } from './save-flow.js';
+import { getStorage } from './storage.js';
 
 const $ = (id) => document.getElementById(id);
 const stage = $('stage');
@@ -15,14 +17,16 @@ const nextCanvas = $('next');
 const overlay = $('overlay');
 const soundBtn = $('sound');
 const clawBtn = $('claw');
-const guide = createGuide(localStorage, Boolean(leaderboard.player));
+const guide = createGuide(getStorage(), Boolean(leaderboard.player));
 let roundVersion = 0;
 const pauses = new PauseState(syncPause);
+let saves;
+let scoreSubmitting = false;
 
 function updateGuide() {
   const step = guide.step;
-  $('guide').classList.toggle('hidden', !step || game.over);
-  $('first-drop').classList.toggle('hidden', !step || game.drops > 0 || game.over);
+  $('guide').classList.toggle('hidden', !step || game.over || Boolean(saves?.blocked));
+  $('first-drop').classList.toggle('hidden', !step || game.drops > 0 || game.over || Boolean(saves?.blocked));
   if (!step) return;
   $('guide-title').textContent = `怎么玩 · ${step} / 3`;
   $('guide-text').textContent = [
@@ -97,6 +101,7 @@ const game = new Game(canvas, {
     if (active) featureTip('fever', '狂热模式：接下来 8 秒，合成得分翻倍！');
   },
   onGameOver({ score, best, maxLevel, isNewBest }) {
+    saves?.finish();
     pauses.clear();
     $('final').textContent = score;
     $('final-best').textContent = best;
@@ -111,6 +116,7 @@ game.debug = new URLSearchParams(location.search).has('debug');
 
 function restart() {
   if (modalOpen()) return;
+  if (saves?.blocked) { saves.show();return; }
   if (!game.over && game.drops > 0) {
     showModal(restartModal, true);
     return;
@@ -119,6 +125,10 @@ function restart() {
 }
 
 function restartNow() {
+  saves.newGame();
+}
+
+function resetRound() {
   if (!restartModal.classList.contains('hidden')) showModal(restartModal, false);
   clearTimeout(overTimer);
   overlay.classList.add('hidden');
@@ -142,20 +152,21 @@ function syncPause() {
   game.setPaused(!game.over && pauses.paused);
   last = performance.now();
   document.body.classList.toggle('game-paused', game.paused);
-  const showCover = !game.over && (pauses.has('manual') || pauses.has('background'));
+  const showCover = !game.over && !saves?.blocked && (pauses.has('manual') || pauses.has('background'));
   $('pause-cover').classList.toggle('hidden', !showCover);
   $('pause-btn').textContent = showCover ? '继续' : '暂停';
-  $('pause-btn').disabled = game.over;
+  $('pause-btn').disabled = game.over || Boolean(saves?.blocked);
   $('pause-title').textContent = pauses.has('background') ? '欢迎回来' : '已暂停';
   $('pause-copy').textContent = pauses.has('background')
     ? '离开时已经暂停，准备好了再继续。' : '这一局先放在这里。准备好了，再继续。';
   $('paused-score').textContent = game.score;
   $('paused-rank').classList.toggle('hidden', !leaderboard.enabled);
   clawBtn.disabled = game.paused || (game.claws === 0 && !game.clawMode);
+  updateGuide();
 }
 
 function togglePause() {
-  if (game.over || modalOpen()) return;
+  if (game.over || modalOpen() || saves?.blocked) return;
   if (pauses.has('manual') || pauses.has('background')) {
     pauses.resume();
     board.focus({ preventScroll: true });
@@ -169,6 +180,7 @@ function backgroundPause() {
   clearInputs();
   if (!game.over && (game.drops > 0 || pauses.paused || modalOpen())) pauses.set('background', true);
   last = performance.now();
+  saves?.flush();
 }
 
 function beginRound() {
@@ -190,12 +202,14 @@ const rankModal = $('rank-modal');
 const accountModal = $('account-modal');
 const helpModal = $('help-modal');
 const restartModal = $('restart-modal');
+const restoreModal = $('restore-modal');
 const finalRank = $('final-rank');
-const modals = [nameModal, rankModal, accountModal, helpModal, restartModal];
+const modals = [nameModal, rankModal, accountModal, helpModal, restartModal, restoreModal];
 const modalOpen = () => document.body.classList.contains('modal-open');
 const modalFocus = new WeakMap();
 
 function showModal(modal, open) {
+  if (modal === restoreModal && !open) saves?.invalidateOffer();
   if (open) modalFocus.set(modal, document.activeElement);
   modal.classList.toggle('hidden', !open);
   const anyOpen = modals.some((m) => !m.classList.contains('hidden'));
@@ -281,7 +295,9 @@ function showPlayer() {
 function showLocalResult() {
   const local = !['pending', 'online'].includes(leaderboard.sessionStatus);
   $('local-result').classList.toggle('hidden', !local);
-  $('local-result').textContent = '本局为本地游玩，不参与排名；最佳成绩保存在本机。';
+  $('local-result').textContent = game.persistenceWarning
+    ? '本局为本地游玩，不参与排名；浏览器保存失败，请勿关闭页面。'
+    : '本局为本地游玩，不参与排名；最佳成绩保存在本机。';
   const canJoin = local && leaderboard.enabled && !leaderboard.player;
   $('result-join').classList.toggle('hidden', !canJoin);
   $('next-round-note').classList.toggle('hidden', !local || !leaderboard.enabled);
@@ -406,7 +422,7 @@ async function submitScore(result) {
   const version = roundVersion;
   finalRank.classList.add('hidden');
   showLocalResult();
-  if (!leaderboard.enabled || !['pending', 'online'].includes(leaderboard.sessionStatus)) return;
+  if (!saves?.canSubmit || !leaderboard.enabled || !['pending', 'online'].includes(leaderboard.sessionStatus)) return;
   if (result.score === 0) {
     finalRank.className = 'final-rank';
     finalRank.textContent = '本局未得分，再试一次吧。';
@@ -414,6 +430,7 @@ async function submitScore(result) {
   }
   finalRank.className = 'final-rank';
   finalRank.textContent = '正在上传成绩…';
+  scoreSubmitting = true;
   try {
     const { rank, improved } = await leaderboard.submit(result);
     if (version !== roundVersion) return;
@@ -422,6 +439,8 @@ async function submitScore(result) {
     if (version !== roundVersion) return;
     finalRank.className = 'final-rank error';
     finalRank.textContent = err.message;
+  } finally {
+    scoreSubmitting = false;
   }
 }
 
@@ -664,6 +683,7 @@ function frame(now) {
   const dir = (keys.has('ArrowRight') || keys.has('KeyD') ? 1 : 0) - (keys.has('ArrowLeft') || keys.has('KeyA') ? 1 : 0);
   if (dir) game.setAim(game.clampAim(game.aimX, game.current) + dir * 280 * Math.min(dt, 0.05));
   game.update(dt);
+  saves?.tick(now);
   game.render();
 }
 
@@ -672,17 +692,33 @@ document.addEventListener('visibilitychange', () => {
   last = performance.now();
 });
 window.addEventListener('blur', backgroundPause);
-window.addEventListener('pagehide', backgroundPause);
+window.addEventListener('pagehide', () => { backgroundPause();saves?.leave(); });
+window.addEventListener('pageshow', (e) => { if(e.persisted)void saves.initialize(); });
 window.addEventListener('resize', layout);
 new ResizeObserver(layout).observe(stage);
 
 layout();
 updateGuide();
+saves = createSaveFlow({
+  game,leaderboard,pauses,showModal,onNew:resetRound,isSubmitting:()=>scoreSubmitting,
+  onRestored() {
+    roundVersion++;
+    clearTimeout(overTimer);overlay.classList.add('hidden');finalRank.classList.add('hidden');
+    scoreEl.textContent=game.score;bestEl.textContent=game.best;
+    drawCrabIcon(nextCanvas,game.next,34,24,dpr);drawLegend();
+    for(const {level,item} of legend)item.classList.toggle('reached',level>=1 && level<=game.maxLevel);
+    $('claw-count').textContent=game.claws;clawBtn.classList.remove('active');board.classList.remove('claw-mode');
+    board.classList.toggle('fever',game.fever);
+    guide.dismiss();updateGuide();showPlayer();board.focus({preventScroll:true});
+  },
+  onLost() { roundVersion++;showPlayer(); },
+});
 requestAnimationFrame(frame);
 initAccount();
+void saves.initialize();
 
 async function initAccount() {
-  beginRound();
+  showPlayer();
   if (!leaderboard.enabled) return;
   // Back from LINUX DO? The page URL carries a one-time login code (or an error).
   const result = await leaderboard.finishLoginRedirect();
@@ -691,7 +727,7 @@ async function initAccount() {
     guide.dismiss();
     updateGuide();
     // The callback may finish after the player has already started a local game.
-    if (game.drops === 0 && !game.over) beginRound();
+    if (!saves.blocked && game.drops === 0 && !game.over) beginRound();
     toast(`欢迎, ${displayName(result.player)}!`);
   }
   if (!leaderboard.player) {

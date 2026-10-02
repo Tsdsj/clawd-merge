@@ -113,6 +113,8 @@
         <button class="link-btn" id="guide-dismiss" type="button">知道了</button>
       </section>
 
+      <div class="save-row"><p id="save-status" class="save-status" aria-live="off">正在读取本机对局…</p><button class="link-btn hidden" id="restore-open">继续上局</button></div>
+
       <footer class="legend" id="legend"></footer>
       <p class="credit">
         <span>作者 fucdd</span>
@@ -196,6 +198,22 @@
     </div>
 
     <div class="toast hidden" id="toast" role="status"></div>
+
+    <div class="modal hidden" id="restore-modal" role="dialog" aria-modal="true" aria-labelledby="restore-title">
+      <div class="sheet restore-sheet">
+        <button class="icon-btn sheet-close" id="restore-close" aria-label="暂不恢复">✕</button>
+        <h2 id="restore-title">继续上一局？</h2>
+        <p id="restore-description" class="sheet-sub"></p>
+        <div class="save-card hidden" id="restore-card">
+          <b id="restore-score"></b><p id="restore-summary"></p>
+          <div class="restore-pieces"><span>当前</span><canvas id="restore-current"></canvas><span>下一个</span><canvas id="restore-next"></canvas></div>
+          <p id="restore-time"></p>
+        </div>
+        <button class="btn restart-choice" id="restore-primary">继续游戏</button>
+        <button class="btn ghost restart-choice" id="restore-secondary">新开一局</button>
+        <p class="hint" id="restore-detail"></p>
+      </div>
+    </div>
 
     <div class="modal hidden" id="restart-modal" role="dialog" aria-modal="true" aria-labelledby="restart-title">
       <div class="sheet">

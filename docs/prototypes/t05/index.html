@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>T05 · 断点续玩原型</title>
+  <link rel="stylesheet" href="../../../src/style.css">
+  <style>
+    :root { --review-height:100px; }
+    .review-bar { position:relative; z-index:5; padding:12px 16px; background:#111523; border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; justify-content:center; align-items:center; gap:8px 18px; font-size:12px; }
+    .review-bar p { color:#b5aec5; line-height:1.5; }
+    .review-bar label { display:flex; align-items:center; gap:10px; }
+    select { padding:8px; min-height:40px; max-width:220px; border:1px solid #72677e; border-radius:6px; background:#25283f; color:var(--text); font:inherit; }
+    .app { height:calc(100dvh - var(--review-height)); }
+    .board canvas { width:100%; height:100%; }
+    .save-status { font-size:11px; line-height:1.5; color:#b5aec5; text-align:center; }
+    .save-status.warning { color:#efc997; }
+    .restore-backdrop { position:fixed; inset:var(--review-height) 0 0; z-index:2; background:#080d1d9c; }
+    .restore-sheet { position:fixed; z-index:3; left:50%; top:calc(var(--review-height) + (100dvh - var(--review-height))/2); transform:translate(-50%,-50%); width:min(350px,calc(100% - 32px)); max-height:calc(100dvh - var(--review-height) - 28px); overflow-y:auto; padding:24px 22px; border:2px solid #a3745f; border-radius:10px; background:#23263b; text-align:center; }
+    .restore-sheet h2 { font-size:24px; color:#e9a789; margin-bottom:9px; }
+    .restore-sheet p { font-size:13px; line-height:1.7; color:#c3bbcf; }
+    .save-card { margin:16px 0; padding:14px; background:#171c2e; border:1px solid #42445b; border-radius:7px; }
+    .save-card .points { font-size:32px; font-weight:800; color:#f0bc9d; font-variant-numeric:tabular-nums; }
+    .save-card p { font-size:12px; }
+    .save-card .next-row { display:flex; justify-content:center; align-items:center; gap:10px; margin:10px 0; }
+    .notice { margin:12px 0; padding:10px 12px; text-align:left; font-size:12px!important; color:#f1cea3!important; background:#393026; border:1px solid #70553e; border-radius:6px; }
+    .restore-sheet .btn { width:100%; min-height:44px; margin-top:12px; }
+    .restore-sheet .link-btn { min-height:40px; margin-top:9px; }
+    .state-label { font-size:11px!important; color:#aaa2bb!important; margin-top:12px; }
+    .danger-action { background:#a54f40; box-shadow:0 3px #74382e; }
+    .close-sheet { position:absolute; right:7px; top:7px; border:0; }
+    .row-actions { display:flex; justify-content:flex-end; gap:7px; }
+    .caption { font-size:11px; color:var(--muted); text-align:center; }
+    @media(max-width:480px) { .review-bar { justify-content:flex-start; padding:10px 12px; } .review-bar p { font-size:11px; } .review-bar label { width:100%; justify-content:space-between; } .restore-sheet { padding:22px 18px; } }
+  </style>
+</head>
+<body>
+  <header class="review-bar" id="review-bar">
+    <div><strong>T05 · 经典模式断点续玩</strong><p>独立原型 · 示例存档，不读写真实游戏数据</p></div>
+    <label>查看状态 <select id="scenario" aria-label="选择存档场景">
+      <option value="local">本地局 · 正常恢复</option><option value="online">在线局 · 凭证可用</option><option value="checking">正在核验原凭证</option>
+      <option value="expired">凭证过期</option><option value="identity">账号已改变</option>
+      <option value="network">恢复核验失败</option><option value="busy">另一标签页正在玩</option><option value="busyWait">另一页无响应</option>
+      <option value="corrupt">存档损坏／版本不兼容</option><option value="storage">保存不可用</option>
+    </select></label>
+  </header>
+  <main class="app" id="app">
+    <header class="top">
+      <div class="title-row"><h1 class="title">合成大Clawd</h1><button class="icon-btn rank-btn" disabled aria-label="排行榜演示">榜</button></div>
+      <div class="player-row"><p class="round-status" id="round-status">本地游玩 · 成绩仅保存在本机</p></div>
+      <div class="hud"><div class="score-box"><div class="score-line">分数: <span id="score">2480</span></div><div class="best">本机最高 9460</div></div><div class="next-box"><span>下一个</span><canvas id="next"></canvas></div><div class="actions"><button class="btn ghost" id="open-save">继续上局</button><button class="btn" id="new-round">重新开始</button></div></div>
+    </header>
+    <section class="stage" id="stage"><div class="board" id="board"><canvas id="scene" width="400" height="640"></canvas></div></section>
+    <p class="save-status" id="save-status">发现未完成对局 · 1 分钟前保存</p>
+    <p class="caption">棋盘仅作视觉展示；恢复后从保留位置继续，不自动投放。</p>
+  </main>
+  <div class="restore-backdrop" id="backdrop"></div>
+  <section class="restore-sheet" id="restore" aria-label="对局恢复选择">
+    <button class="icon-btn close-sheet" id="close" aria-label="暂不恢复">✕</button>
+    <h2 id="title">继续上一局？</h2><p id="description">棋盘还在，接着合成吧。</p>
+    <div class="save-card" id="card"><div class="points">2,480</div><p>最高合成：牛仔Clawd · 投放 68 次</p><div class="next-row"><span class="caption">当前</span><canvas id="current-preview"></canvas><span class="caption">下一个</span><canvas id="next-preview"></canvas></div><p>钳子 ×2 · 1 分钟前保存</p></div>
+    <p class="notice hidden" id="notice"></p>
+    <button class="btn" id="primary">继续游戏</button><button class="btn ghost" id="secondary">新开一局</button>
+    <button class="link-btn hidden" id="tertiary">暂不恢复</button>
+    <p class="state-label" id="detail">仅保存在这个浏览器，本局不参与排名。</p>
+  </section>
+  <script type="module">
+    import { drawCrabIcon } from '../../../src/crabs.js';
+    const $=(id)=>document.getElementById(id);
+    let mode='local', confirming=false;
+    const configs={
+      local:{title:'继续上一局？',description:'棋盘还在，接着合成吧。',primary:'继续游戏',secondary:'新开一局',detail:'仅保存在这个浏览器，本局不参与排名。'},
+      online:{title:'继续上一局？',description:'已确认是同一账号，原成绩凭证仍可用。',primary:'继续游戏',secondary:'新开一局',detail:'沿用原对局凭证；恢复不会新建上榜机会。'},
+      checking:{title:'正在确认原对局',description:'棋盘已找到，正在核验原账号和成绩凭证。',primary:'正在核验…',secondary:'暂不恢复',detail:'核验期间不会运行棋盘或改写旧存档。',pending:true},
+      expired:{title:'棋盘还在，可以继续',description:'这局的上榜凭证已过期。',notice:'继续后转为本地游玩，本局不能再参与排名；新开一局可重新申请上榜资格。',primary:'继续本地游玩',secondary:'新开一局',detail:'棋盘、分数和道具按最近一次保存恢复。'},
+      identity:{title:'这局属于另一个身份',description:'当前账号与开局身份不同。',notice:'旧局不会转交给当前账号。可以先去切回原身份，或明确选择把这局转为本地游玩。',primary:'继续本地游玩',secondary:'暂不恢复',detail:'选择本地继续后，这局不再申请上榜。'},
+      network:{title:'暂时无法确认上榜资格',description:'本地棋盘仍可恢复。',notice:'可以重试核验，或选择本地继续。一旦转为本地局，之后登录或联网也不补交这局成绩。',primary:'重试核验',secondary:'继续本地游玩',tertiary:'暂不恢复',detail:'尚未修改原存档或消耗原凭证。'},
+      busy:{title:'这局正在另一页进行',description:'同一局只能由一个标签页继续。',notice:'接管会先让另一页暂停并保存，再把棋盘交到这一页。完成交接前，这一页不写入存档。',primary:'接管并继续',secondary:'暂不接管',detail:'若另一页无响应，请关闭那一页后重试。'},
+      busyWait:{title:'正在等待另一页交接',description:'另一页暂时没有回应，这一页还不能接管。',notice:'请先关闭正在游玩的另一页，再重试。交接完成前，这一页不会覆盖存档。',primary:'重试接管',secondary:'暂不接管',detail:'不会因等待超时就强行写入旧棋盘。'},
+      corrupt:{title:'这份存档暂时打不开',description:'存档可能已损坏，或来自不兼容的版本。',notice:'本机最高分和图鉴不受影响。新开一局会替换这份无法恢复的对局记录。',primary:'新开一局',secondary:'暂不处理',detail:'未确认新开前，不删除或覆盖原记录。',noCard:true},
+      storage:{title:'当前无法自动保存',description:'你仍然可以玩，但本轮只能临时游玩。',notice:'浏览器未允许保存，或可用空间不足。刷新或关闭页面后，这一局可能无法恢复。',primary:'临时游玩',secondary:'重试保存',detail:'不会伪装成已保存，也不清除已有最高分或图鉴。',noCard:true}
+    };
+    function draw(empty=false){const ctx=$('scene').getContext('2d');ctx.fillStyle='#151a2e';ctx.fillRect(0,0,400,640);ctx.strokeStyle='#ba8787';ctx.setLineDash([5,7]);ctx.beginPath();ctx.moveTo(8,140);ctx.lineTo(392,140);ctx.stroke();ctx.setLineDash([]);if(!empty)for(const [l,x,y,w,h] of [[8,90,555,140,110],[5,228,575,90,65],[3,330,600,66,50],[2,214,517,55,38]]){const c=document.createElement('canvas');drawCrabIcon(c,l,w,h,1);ctx.drawImage(c,x-w/2,y-h/2);}const c=document.createElement('canvas');drawCrabIcon(c,1,40,28,1);ctx.drawImage(c,180,50);}
+    function show(open){$('restore').classList.toggle('hidden',!open);$('backdrop').classList.toggle('hidden',!open);$('app').inert=open;}
+    function render(){const c=configs[mode];confirming=false;$('secondary').className='btn ghost';show(true);$('title').textContent=c.title;$('description').textContent=c.description;$('card').classList.toggle('hidden',!!c.noCard);$('notice').textContent=c.notice||'';$('notice').classList.toggle('hidden',!c.notice);$('primary').textContent=c.primary;$('primary').className='btn';$('secondary').textContent=c.secondary;$('tertiary').textContent=c.tertiary||'';$('tertiary').classList.toggle('hidden',!c.tertiary);$('detail').textContent=c.detail;$('primary').disabled=!!c.pending;}
+    function continueGame(){show(false);if(mode==='storage'){$('score').textContent='0';draw(true);}$('open-save').textContent='查看恢复说明';$('round-status').textContent=mode==='online'?'已恢复原局 · 凭证当前可用':mode==='storage'?'临时游玩 · 本局未保存':'已恢复原局 · 本地游玩，不参与排名';$('save-status').textContent=mode==='storage'?'自动保存不可用 · 本轮为临时游玩':'已恢复最近的保存位置 · 示例状态';$('save-status').classList.toggle('warning',mode==='storage');}
+    function confirmNew(){confirming=true;$('title').textContent='放弃上一局，重新开始？';$('description').textContent='确认后才替换旧对局；本机最高分和图鉴会保留。';$('card').classList.add('hidden');$('notice').classList.add('hidden');$('primary').textContent='保留上一局';$('primary').className='btn';$('secondary').textContent='放弃旧局，新开一局';$('secondary').className='btn danger-action';$('tertiary').classList.add('hidden');$('detail').textContent='这是原型，不会修改真实存档。';show(true);$('primary').focus();}
+    $('primary').onclick=()=>{if(confirming){$('secondary').className='btn ghost';render();return;}if(mode==='corrupt'){confirmNew();return;}if(mode==='network'){$('description').textContent='演示：仍然无法连接，旧存档保持不变。';return;}if(mode==='busyWait'){$('description').textContent='演示：另一页仍未响应，请关闭后重试。';return;}continueGame();if(mode==='busy')$('save-status').textContent='演示：另一页已暂停并保存，已在本页接管';};
+    $('secondary').onclick=()=>{if(confirming){confirming=false;show(false);draw(true);$('open-save').classList.add('hidden');$('score').textContent='0';$('open-save').textContent='查看恢复说明';$('round-status').textContent='新局 · 本地游玩';$('save-status').textContent='新局还未投放 · 示例状态';return;}if(mode==='network'){continueGame();return;}if(['identity','busy','busyWait','corrupt','checking'].includes(mode)){show(false);return;}if(mode==='storage'){$('description').textContent='演示：保存仍不可用，可以临时游玩。';return;}confirmNew();};
+    $('tertiary').onclick=$('close').onclick=()=>show(false);
+    $('scenario').onchange=()=>{mode=$('scenario').value;$('open-save').classList.remove('hidden');$('save-status').classList.remove('warning');$('save-status').textContent='发现未完成对局 · 1 分钟前保存';$('score').textContent='2480';$('secondary').className='btn ghost';draw();render();};
+    $('open-save').onclick=render;$('new-round').onclick=confirmNew;
+    document.addEventListener('keydown',e=>{if(e.code==='Escape'){if(confirming){$('secondary').className='btn ghost';render();}else show(false);}});
+    function layout(){const h=$('review-bar').getBoundingClientRect().height;document.documentElement.style.setProperty('--review-height',`${h}px`);const r=$('stage').getBoundingClientRect();const w=Math.floor(Math.min(r.width-8,(r.height-8)*400/640));$('board').style.width=`${w}px`;$('board').style.height=`${w*640/400}px`;}
+    for(const [id,level] of [['next',3],['current-preview',1],['next-preview',3]])drawCrabIcon($(id),level,34,26,2);
+    new ResizeObserver(layout).observe($('review-bar'));window.addEventListener('resize',layout);draw();layout();render();
+  </script>
+</body>
+</html>

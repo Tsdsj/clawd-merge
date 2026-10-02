@@ -92,6 +92,18 @@ body {
 .retained-progress { padding: 12px; background: #171b2c; border-radius: 6px; width: 100%; font-size: 13px; line-height: 1.7; }
 .restart-choice { min-height: 44px; width: 100%; margin-top: 10px; }
 .danger-btn { background: #a54f40; box-shadow: 0 3px #74382e; }
+.save-row { display: flex; gap: 8px; align-items: center; justify-content: center; flex: none; }
+.save-status { font-size: 11px; line-height: 1.5; color: #b5aec5; }
+.save-status.warning { color: #efc997; }
+#restore-open { flex: none; min-height: 32px; color: #efad90; }
+.restore-sheet { position: relative; width: min(360px, 100%); }
+.restore-sheet h2 { padding: 8px 14px 0; }
+.restore-sheet .sheet-sub { line-height: 1.7; }
+.save-card { width: 100%; padding: 14px; margin: 8px 0; background: #171c2e; border: 1px solid #42445b; border-radius: 7px; }
+.save-card > b { font-size: 32px; color: #f0bc9d; }
+.save-card p { font-size: 12px; line-height: 1.7; color: #c3bbcf; }
+.restore-pieces { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 10px 0; font-size: 11px; color: #c3bbcf; }
+.btn.ghost.danger-btn { color: white; background: #a54f40; box-shadow: 0 3px #74382e; }
 .game-paused .board, .game-paused .board *, .game-paused #score, .game-paused .claw-btn { animation-play-state: paused; }
 .btn:disabled { opacity: 0.5; cursor: default; }
 #next-round-note { font-size: 11px; line-height: 1.5; }
@@ -979,4 +991,5 @@ body.modal-open .board {
   .app:has(.guide:not(.hidden)) .legend { display: none; }
   .guide { flex: 1; align-self: center; flex-direction: column; min-width: 100px; max-width: 190px; }
   .guide div { flex: none; }
+  .save-row { position: fixed; left: 12px; bottom: 34px; max-width: 33vw; }
 }

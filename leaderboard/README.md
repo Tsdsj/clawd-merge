@@ -71,10 +71,15 @@ npx wrangler deploy
 | `GET` | `/api/auth/linuxdo/callback` | L 站授权回调，跳回游戏页并在网址 `#login=` 里带一个一次性登录码 |
 | `POST` | `/api/auth/exchange` | `{ code }` → `{ player, token }`，用一次性登录码换 token |
 | `POST` | `/api/session` | 开始一局，返回一次性的 `sessionId` |
+| `GET` | `/api/session/check?sessionId=...` | 只读核验本人的旧凭证，返回 `{ status, serverNow, expiresAt }`；不消费或续签 |
 | `POST` | `/api/score` | `{ sessionId, score, drops, maxLevel }` → `{ best, rank, improved }` |
 | `GET` | `/api/leaderboard?limit=50` | 前 N 名（最多 100），每人只计最佳成绩 |
 
 需要身份的接口都带 `Authorization: Bearer <token>`。
+
+恢复核验的 `status` 为 `valid`、`expired`、`used` 或 `invalid`。不存在或不属于当前玩家的凭证统一返回 `invalid`，`expiresAt` 为 `null`；未认证返回 401。有效期仍为原开局后 3 小时，核验使用服务端时间并返回 `Cache-Control: no-store`。恢复成功不免除最终成绩提交时的校验；客户端不能通过恢复申请替代凭证。
+
+包含断点续玩的版本应先更新 Worker，再发布前端；本次接口不需要 D1 迁移。旧客户端的开局和提交字段保持兼容。
 
 ## 安全
 
