@@ -17,7 +17,8 @@
     "test:d1": "node leaderboard/test/d1-receipts.integration.mjs",
     "ops:report": "node leaderboard/ops/run.mjs",
     "check:names": "node scripts/build-name-policy.mjs --check",
-    "ops:names": "node leaderboard/ops/name-audit.mjs"
+    "ops:names": "node leaderboard/ops/name-audit.mjs",
+    "test:deploy": "node --test test/proxied-deploy.integration.mjs"
   },
   "engines": {
     "node": ">=22.13"

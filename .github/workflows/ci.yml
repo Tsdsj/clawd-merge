@@ -20,6 +20,7 @@ jobs:
         with:
           node-version: '24.18.0'
       - run: npm run check:names
+      - run: npm run test:deploy
       - run: npm test
       - run: node --test leaderboard/test/api.test.mjs
         env:

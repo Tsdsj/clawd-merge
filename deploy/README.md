@@ -1,12 +1,14 @@
 # Docker Compose 自托管
 
-前端静态文件、Node API、SQLite持久化、HTTPS和运维任务均运行在自有服务器。Compose管理 `web`、`api`、`certbot`、`backup`；不需要另开数据库网络端口。
+前端静态文件、Node API、SQLite持久化、HTTPS和运维任务均运行在自有服务器。Compose 管理 `web`、`api`、`backup`。接在宿主机 Caddy 后面时，由 Caddy 提供 HTTPS；独立 TLS 模式才启用 `certbot`。不需要另开数据库网络端口。
 
 仓库只提供通用代码与模板。实际主机、域名、账号、密钥、备份、巡检截图和运行参数在私有部署目录中管理，不加入Git，也不放进公开构建上下文。`leaderboard/wrangler.toml` 只保留旧运行时的开发模板。
 
 ## 文件与权限
 
 - `compose.yaml`：服务、重启策略、日志轮转、资源上限与数据挂载。
+- `compose.proxied.yaml`：宿主机反代模式，覆盖端口为 loopback 8080、选择 HTTP 模板并将 Certbot 移入回退 profile。
+- `nginx-proxied.conf`：Caddy 后面的 HTTP 静态资源/API 代理，沿用安全响应头及不含 query 的日志。
 - `Dockerfile`：Node24应用镜像，无额外npm生产依赖，以UID1000运行。
 - `nginx.conf`：HTTPS、静态资源和API反代；从私有 `PUBLIC_HOST` 渲染。
 - `nginx-bootstrap.conf`：首次签发证书时的HTTP验证入口，不提供业务API。
@@ -15,9 +17,37 @@
 
 为data/backups目录设置UID1000可写，其他用户不可读；OAuth Secret单独保存为UID1000可读的0400文件，由Compose secret挂载，不能写进镜像或Compose源码。配置与TLS私钥仅给运维账户和相应容器访问。
 
-容器只发布80/443。API3000仅在Compose网络内可达，SQLite没有网络端口。Nginx覆盖 `X-Real-IP`，API仅在该私有反代结构中启用 `TRUST_PROXY=1`；不要把API端口另行发布到公网。
+宿主机反代模式下，Caddy 占用 80/443，clawd 仅发布 `127.0.0.1:8080`（私有 `WEB_PROXY_PORT` 可调整）。独立 TLS 模式才由 clawd 发布 80/443。API3000 仅在 Compose 网络内可达，SQLite 没有网络端口。API 仅在该私有反代结构中启用 `TRUST_PROXY=1`；不要把 API 端口另行发布到公网。
 
-## 初始化与更新
+## 已接入宿主机 Caddy 的发布方式
+
+这是宿主机已有统一 HTTPS 入口时的更新方式。不要再按下面的独立 TLS 首次签发步骤启动 Certbot。
+
+1. 将本目录的 `compose.yaml`、`compose.proxied.yaml` 同步到私有 Compose 目录；将 `nginx-proxied.conf` 与 `nginx-start.sh` 同步到 `CLAWD_DEPLOY_DIR` 指定的配置目录。两个目录可能不同，不能只上传源码包。
+2. 私有 `.env` 保留 `COMPOSE_FILE=compose.yaml:compose.proxied.yaml`。始终在该 Compose 目录中运行命令：
+
+   ```bash
+   docker compose --env-file .env config --quiet
+   docker compose --env-file .env config --services
+   docker compose --env-file .env ps
+   ```
+
+   默认服务应只有 `api`、`web`、`backup`。检查最终 web 端口只有 `127.0.0.1:8080 -> 80`，没有公网 80/443，也没有 API 的宿主端口。
+3. **显式 `-f` 会覆盖 `.env` 的 `COMPOSE_FILE` 选择。** 发布工具如果指定文件，必须每次使用完整组合：
+
+   ```bash
+   docker compose --env-file .env -f compose.yaml -f compose.proxied.yaml config --quiet
+   ```
+
+   build、up、ps、logs、exec、run 都沿用同一组合；禁止在 Caddy 模式下只传 `-f compose.yaml`。通过检查和发布审批后，才对已核定版本执行更新。
+4. 账号功能开放另有发布门禁。批准后追加 `compose.password.yaml` 时，必须保留 proxied 文件：`-f compose.yaml -f compose.proxied.yaml -f compose.password.yaml`。不能用 password overlay 替换反代 overlay。
+5. 不修改现有 Caddy 站点、宿主防火墙、Docker live-restore 或 SSH 设置。已有证书目录保留作回退材料；回退应用版本时继续使用 proxied 组合，不能直接抢回 80/443。
+
+反代信任边界：宿主代理必须覆盖 `X-Real-IP`；若前面有 CDN，只信任从已核实 CDN 地址发来的客户端 IP 信息。Nginx 模板信任 loopback 和默认 Docker 私网范围 `172.16.0.0/12`，不会把任意公网来源声明的头直接当作客户端地址；自定义 Docker 网段需在私有配置中核对。此配置依赖宿主本地端口及容器网络隔离，不应让不可信容器加入 clawd 网络。不要把 8080 改成 `0.0.0.0`，也不要额外信任所有来源。
+
+仓库配置检查：`npm run test:deploy`（需要支持 `!override` 的 Docker Compose，不需要启动 Docker 容器）。它验证 loopback 端口、模板覆盖、Certbot 默认排除，以及与密码 overlay 的叠加结果。实际服务器仍需检查 `nginx -t`、外部 HTTPS/API 和容器发布端口。
+
+## 独立 TLS 初始化与更新
 
 1. 安装Docker Engine和Compose插件。为实际实例准备私有环境文件，字段参照 `.env.example`，生产镜像固定到验证过的digest。
 2. 配置域名DNS及入站80/443；保留现有可用SSH通道，不在未验证密钥时关闭密码登录。
