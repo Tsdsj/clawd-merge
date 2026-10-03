@@ -127,10 +127,10 @@ test("cleanup preview is read-only, bounded deletes retain active state, receipt
       ["active", asOf],
     ]) {
       db.raw
-        .prepare("INSERT INTO oauth_states VALUES(?,?,?,?)")
+        .prepare("INSERT INTO oauth_states(state_hash,merge_player_id,return_to,created_at) VALUES(?,?,?,?)")
         .run(key, null, "https://example.test", time);
       db.raw
-        .prepare("INSERT INTO login_codes VALUES(?,?,?)")
+        .prepare("INSERT INTO login_codes(code_hash,player_id,created_at) VALUES(?,?,?)")
         .run(key, "a", time);
       db.raw.prepare("INSERT INTO rate_limits VALUES(?,?,?)").run(key, time, 1);
     }
@@ -202,7 +202,7 @@ test("snapshot comparison rejects mismatched sources and reports row deltas with
 test("cleanup applies at most 500 expired rows and never purges a live credential", async () => {
   const db = createD1();
   try {
-    const ins = db.raw.prepare("INSERT INTO login_codes VALUES(?,?,?)");
+    const ins = db.raw.prepare("INSERT INTO login_codes(code_hash,player_id,created_at) VALUES(?,?,?)");
     for (let i = 0; i < 503; i++) ins.run(`expired-${i}`, "p", from);
     ins.run("live", "p", asOf);
     const report = await collectReport(query(db), options);

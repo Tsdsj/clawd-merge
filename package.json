@@ -15,7 +15,9 @@
     "icons": "node scripts/make-icons.mjs",
     "test:http": "node test/upload-timeout.integration.mjs",
     "test:d1": "node leaderboard/test/d1-receipts.integration.mjs",
-    "ops:report": "node leaderboard/ops/run.mjs"
+    "ops:report": "node leaderboard/ops/run.mjs",
+    "check:names": "node scripts/build-name-policy.mjs --check",
+    "ops:names": "node leaderboard/ops/name-audit.mjs"
   },
   "engines": {
     "node": ">=22.13"

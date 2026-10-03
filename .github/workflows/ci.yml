@@ -19,6 +19,7 @@ jobs:
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: '24.18.0'
+      - run: npm run check:names
       - run: npm test
       - run: node --test leaderboard/test/api.test.mjs
         env:

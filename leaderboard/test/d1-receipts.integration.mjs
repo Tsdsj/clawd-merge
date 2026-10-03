@@ -30,7 +30,7 @@ const options = {
   host: '127.0.0.1',
   port: 0,
   modulesRoot: fileURLToPath(new URL('../../', import.meta.url)),
-  modules: ['leaderboard/src/index.js','leaderboard/src/challenges.js','src/rules.js'].map(path=>({type:'ESModule',path:fileURLToPath(new URL('../../'+path,import.meta.url))})),
+  modules: ['leaderboard/src/index.js','leaderboard/src/challenges.js','leaderboard/src/name-policy.js','leaderboard/data/name-policy-v1.js','src/rules.js'].map(path=>({type:'ESModule',path:fileURLToPath(new URL('../../'+path,import.meta.url))})),
   compatibilityDate,
   d1Databases: { DB: 'isolated-receipt-test' },
   d1Persist: false,
@@ -49,11 +49,16 @@ try {
     .filter((f) => f.endsWith('.sql'))
     .sort()) {
     const sql = readFileSync(new URL(file, migrations), 'utf8').replace(/--[^\n]*/g, '');
-    for (const statement of sql
-      .split(';')
-      .map((s) => s.trim())
-      .filter(Boolean))
-      await db.prepare(statement).run();
+    // Keep each trigger body together: its internal semicolons are not boundaries.
+    // Current migrations use a standalone END; line for every trigger.
+    const triggers=[];
+    const ordinary=sql.replace(/CREATE TRIGGER[\s\S]*?\nEND;/g,trigger=>{
+      const index=triggers.push(trigger)-1;return `__trigger_${index}__;`;
+    });
+    for (const part of ordinary.split(';').map(s=>s.trim()).filter(Boolean)) {
+      const marker=part.match(/^__trigger_(\d+)__$/);
+      await db.prepare(marker?triggers[Number(marker[1])]:part).run();
+    }
   }
   let ipCounter=0;
   async function api(path, { token, body, ip } = {}) {
@@ -205,6 +210,25 @@ try {
   const rankingSession=(await api('/api/session',{body:{},token:ranked[1].token})).data.sessionId;
   assert.equal((await api('/api/score',{token:ranked[1].token,body:{sessionId:rankingSession,score:1,drops:1,maxLevel:1}})).data.rank,2);
   console.log('PASS: A01 real D1 atomic limits, concurrent account creation/guest merging, quota, rollback and stable ranks.');
+  // A03 foundation also runs through the real workerd SQLite engine.
+  assert.equal((await api('/api/register',{body:{name:'傻-逼'}})).status,400);
+  const namePlayer=await api('/api/register',{body:{name:'名称兼容用户'}});
+  assert.equal(namePlayer.status,201);
+  const alias=(await db.prepare('SELECT public_alias FROM players WHERE id=?').bind(namePlayer.data.player.id).first()).public_alias;
+  assert.match(alias,/^玩家·\d+$/u);
+  await db.prepare("UPDATE players SET name='傻逼' WHERE id=?").bind(namePlayer.data.player.id).run();
+  assert.equal((await api('/api/me',{token:namePlayer.data.token})).data.player.name,alias);
+  assert.equal((await api('/api/session',{token:namePlayer.data.token,body:{}})).status,200);
+  await db.prepare(`INSERT INTO auth_operations(request_id,actor_scope,action,retry_secret_hash,created_at,expires_at)
+    VALUES ('name-op','isolated','register',?,1,100)`).bind('a'.repeat(64)).run();
+  await db.prepare("INSERT INTO login_handle_reservations VALUES ('name-op','Test#1234','test#1234',100)").run();
+  const credential=db.prepare("INSERT INTO password_credentials VALUES (?, 'Test#1234','test#1234','scrypt',?,?,1,1)")
+    .bind(namePlayer.data.player.id,'s'.repeat(22),'d'.repeat(43));
+  await assert.rejects(credential.run(),/login_handle_reserved/);
+  await db.batch([db.prepare("DELETE FROM login_handle_reservations WHERE operation_id='name-op'"),credential]);
+  assert.equal((await db.prepare('SELECT login_handle FROM password_credentials WHERE player_id=?').bind(namePlayer.data.player.id).first()).login_handle,'Test#1234');
+  console.log('PASS: A03 real D1 name policy, stable aliases, continued play, reservation exclusion and atomic consumption.');
+
 } finally {
   await mf.dispose();
   await new Promise(resolve=>oauth.close(resolve));

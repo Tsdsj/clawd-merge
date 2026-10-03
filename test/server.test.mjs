@@ -24,7 +24,7 @@ test('production SQLite persists data and applies each migration only once acros
   db.close();
   db = openDatabase(path);
   assert.equal((await db.prepare("SELECT count FROM rate_limits WHERE key='durable'").first()).count, 2);
-  assert.equal((await db.prepare('SELECT count(*) n FROM app_migrations').first()).n, 4);
+  assert.equal((await db.prepare('SELECT count(*) n FROM app_migrations').first()).n, readdirSync(migrations).filter(x=>x.endsWith('.sql')).length);
   db.close();
 });
 
@@ -40,7 +40,7 @@ test('production SQLite adopts exported D1 migration history without reapplying 
   old.raw.close();
   const db = openDatabase(path);
   assert.equal((await db.prepare("SELECT count FROM rate_limits WHERE key='existing'").first()).count, 3);
-  assert.equal((await db.prepare('SELECT count(*) n FROM app_migrations').first()).n, 4);
+  assert.equal((await db.prepare('SELECT count(*) n FROM app_migrations').first()).n, readdirSync(migrations).filter(x=>x.endsWith('.sql')).length);
   db.close();
 });
 

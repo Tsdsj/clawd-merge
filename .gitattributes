@@ -1,0 +1,2 @@
+# Preserve the pinned upstream license byte-for-byte.
+leaderboard/data/name-policy/LICENSE.txt -whitespace

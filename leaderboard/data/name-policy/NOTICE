@@ -1,0 +1,6 @@
+Selected word data derived from houbb/sensitive-word-data.
+Upstream commit: fe6fc2921836217b8c90619db81b24af8b22d80f
+Upstream license: Apache License 2.0 (see LICENSE.txt).
+Modifications: selected entries, added project rules, finite variants and one exact exception.
+Upstream provides a repository license but not per-entry provenance. No additional provenance or completeness warranty is claimed.
+No upstream NOTICE file was present in the pinned tree.

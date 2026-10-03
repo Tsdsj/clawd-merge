@@ -173,3 +173,7 @@ API 覆盖参数只对 loopback 页面生效（`localhost`、`127.0.0.1`、`[::1
 ## 运行观察与维护
 
 `npm run ops:report -- --help` 提供只读 SQLite / D1 聚合报告、快照比较和有界清理候选。报告不会迁移、删除或部署；成绩/回执及挑战次数账本保留。未采集的上传成功率、真实完成率和留存明确为未知。详见[运行说明](../docs/operations/README.md)与[T12 验证](../docs/verification/m2-t12.md)。
+
+## 名称策略与账号数据基础（A03，未部署）
+
+游客注册/改名使用版本化本地策略；被替代的存量名称仍保留原身份和成绩。维护、许可证、筛选范围及只读扫描见[词库说明](data/name-policy/README.md)，迁移与后续认证边界见[A03记录](../docs/verification/a03-name-policy-and-migration.md)。0005准备账号表与会话元数据，密码入口仍未开启；本阶段不执行生产迁移。

@@ -32,7 +32,7 @@
 | 数据 | 必需字段/约束 | 用途 |
 | --- | --- | --- |
 | `password_credentials` | `player_id` PK；`login_handle`、`login_handle_key` UNIQUE；algorithm、salt、derived_key、params_version、updated_at | 登录名独立于可变展示名；盐至少 16 随机字节，派生值 32 字节 |
-| `players` 扩展 | `auth_version` 默认 0；display_name_source；名称审核版本/状态（实施时可按实际需要裁剪） | auth_version 是安全凭据版本；不能用展示昵称版本代替 |
+| `players` 扩展 | `auth_version` 默认 0；display_name_source；名称审核版本/状态、唯一public_alias（单调序号分配） | auth_version 是安全凭据版本；不能用展示昵称版本代替 |
 | `tokens` 扩展 | auth_method、auth_version、authenticated_at、expires_at | 保留原 token_hash 主键；授权时核对当前版本/到期时间 |
 | `recovery_codes` | player_id UNIQUE、code_hash、created_at | 一次仅一条有效恢复码；消费与改密同事务 |
 | `reauth_grants` | grant_hash PK、player_id、token_hash、auth_version、purpose、expires_at | 5 分钟、限定操作、单次二次验证证明 |
@@ -171,7 +171,7 @@ Linux.do-only 用户通过新 OAuth 流程获得 `set_password` 或 `rotate_reco
 
 ### 6.1 词库决策
 
-候选来源固定为 `houbb/sensitive-word-data@fe6fc2921836217b8c90619db81b24af8b22d80f`，本轮仅下载到临时目录进行统计，**未接入产品**。许可证文件与摘要见验证记录；A03 引入时保留 LICENSE/NOTICE 及来源说明，核查上游数据出处，不把代码仓库许可证当作对全部词条来源的额外担保。
+候选来源固定为 `houbb/sensitive-word-data@fe6fc2921836217b8c90619db81b24af8b22d80f`。A00仅下载统计；A03已采用固定来源的69条首版筛选集，保留LICENSE/NOTICE、来源摘要与标签统计，见[词库维护说明](../../leaderboard/data/name-policy/README.md)。上游没有逐词来源清单，不把代码仓库许可证当作对全部词条来源的额外担保。A03尚未发布。
 
 采用“固定版本本地数据＋项目人工筛选＋允许/拒绝回归语料”。不自动跟随上游 main，不请求外部在线审核。原始 deny 文件为空，实际主词库是 dict 文件；不能误把空 deny 当成全部审核词。
 

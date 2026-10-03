@@ -4,6 +4,7 @@ WORKDIR /app
 COPY package.json ./
 COPY server ./server
 COPY leaderboard/src ./leaderboard/src
+COPY leaderboard/data ./leaderboard/data
 COPY leaderboard/migrations ./leaderboard/migrations
 COPY leaderboard/ops ./leaderboard/ops
 COPY src ./src

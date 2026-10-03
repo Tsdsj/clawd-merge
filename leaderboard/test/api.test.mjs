@@ -618,3 +618,36 @@ test('classic session accepts legacy empty POST streams while rejecting malforme
   assert.equal(r.status,400,body);
  }
 });
+
+test('A03: register and rename use the same curated and separator-aware name policy', async()=>{
+  for(const name of ['傻逼','傻-逼','賭博','f_u_c_k','官-方']) {
+    const r=await call('POST','/api/register',{body:{name}});assert.equal(r.status,400,name);assert.equal(r.data.error,'bad_name');assert.ok(!r.data.message.includes(name));
+  }
+  const p=await register('王伟');assert.ok(p.token);
+  const bad=await call('POST','/api/rename',{token:p.token,body:{name:'販毒'}});assert.equal(bad.status,400);
+  assert.equal((await call('GET','/api/me',{token:p.token})).data.player.name,'王伟');
+});
+
+test('A03: unsafe external names keep OAuth access and share one stable alias across both boards',async()=>{
+ const p=await linuxdoLogin({id:703,username:'傻逼'});assert.ok(p.token);assert.match(p.player.name,/^玩家·\d+$/u);
+ const raw=env.DB.raw.prepare('SELECT * FROM players WHERE id=?').get(p.player.id);assert.equal(raw.name,'傻逼');assert.equal(raw.linuxdo_id,703);
+ env.DB.raw.prepare('UPDATE players SET best_score=99,best_at=1 WHERE id=?').run(p.player.id);
+ const me=await call('GET','/api/me',{token:p.token});const board=await call('GET','/api/leaderboard');assert.equal(me.data.player.name,p.player.name);assert.equal(board.data.entries[0].name,p.player.name);
+ const today=await call('GET','/api/challenges/today',{token:p.token});const id=today.data.challenge.challengeId;
+ env.DB.raw.prepare('INSERT INTO challenge_bests VALUES (?,?,?,?,?)').run(id,p.player.id,88,5,1);
+ const daily=await call('GET',`/api/challenges/leaderboard?challengeId=${id}`,{token:p.token});assert.equal(daily.status,200);assert.equal(daily.data.entries[0].name,p.player.name);assert.equal(daily.data.me.player.name,p.player.name);
+ const again=await linuxdoLogin({id:703,username:'傻逼'});assert.equal(again.player.id,p.player.id);assert.equal(again.player.name,p.player.name);
+ assert.equal('auth_version' in board.data.entries[0],false);
+});
+
+test('A03: a policy change masks a guest without deleting identity, sessions or scores',async()=>{
+ const p=await register('普通玩家');const s=await call('POST','/api/session',{token:p.token});
+ env.BLOCKED_WORDS='普通玩家';const me=await call('GET','/api/me',{token:p.token});assert.equal(me.status,200);assert.match(me.data.player.name,/^玩家·\d+$/u);
+ assert.equal(me.data.player.id,p.player.id);assert.equal(env.DB.raw.prepare('SELECT name FROM players WHERE id=?').get(p.player.id).name,'普通玩家');
+ assert.equal((await call('GET',`/api/session/check?sessionId=${s.data.sessionId}`,{token:p.token})).status,200);
+ const renamed=await call('POST','/api/rename',{token:p.token,body:{name:'新的名字'}});assert.equal(renamed.status,200);assert.equal(renamed.data.player.name,'新的名字');
+});
+
+test('A03 foundation does not enable password or recovery endpoints',async()=>{
+ for(const path of ['/api/auth/password/register','/api/auth/password/login','/api/account/password','/api/auth/password/recover'])assert.equal((await call('POST',path,{body:{}})).status,404,path);
+});

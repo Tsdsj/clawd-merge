@@ -1,0 +1,50 @@
+{
+  "repository": "https://github.com/houbb/sensitive-word-data",
+  "commit": "fe6fc2921836217b8c90619db81b24af8b22d80f",
+  "license": "Apache-2.0",
+  "tagMappingSource": "https://github.com/houbb/sensitive-word/blob/b86249ddfa381b426359a420623486e099c2092d/src/main/java/com/github/houbb/sensitive/word/constant/enums/WordTagType.java",
+  "tagMeaning": {
+    "0": "政治",
+    "1": "毒品",
+    "2": "色情",
+    "3": "赌博",
+    "4": "违法犯罪"
+  },
+  "files": {
+    "sensitive_word_tags.txt": {
+      "sha256": "37cea2687a1525a436aaa080e918f6c263310bd21b4bce8b05ba5185ee3e5ae8",
+      "lines": 43768
+    },
+    "sensitive_word_dict.txt": {
+      "sha256": "78ae99be25f542d0bd1e950a32ca1dec620b2ac91046c9c785f46244d29db85f",
+      "lines": 64419
+    },
+    "sensitive_word_deny.txt": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "lines": 0
+    },
+    "sensitive_word_allow.txt": {
+      "sha256": "0703014a854939cae98008baaea8aeb0bc0b3eaecc835863b01968d1ec401682",
+      "lines": 12
+    },
+    "sensitive_word_dict_en.txt": {
+      "sha256": "34e73629f053ee248842dd5063c11c8d1dc2b0465ac3a356a0ced69c3c1105ec",
+      "lines": 12
+    }
+  },
+  "licenseSha256": "68f716036e0a24f3b23f6fc0c6342db0ef936fb397ad077cc1b6e9e9ba31da26",
+  "tagRows": 43768,
+  "uniqueTaggedWords": 43768,
+  "tagCounts": {
+    "0": 2029,
+    "1": 4711,
+    "4": 27519,
+    "2": 15090,
+    "3": 872
+  },
+  "untaggedDictWords": 20727,
+  "selectedBase": 69,
+  "unselectedDictWords": 64353,
+  "selectionRule": "Explicit per-term selection for public game names. Never classify all untagged words as approved or auto-block an entire category.",
+  "tagWordsOutsideDict": 76
+}

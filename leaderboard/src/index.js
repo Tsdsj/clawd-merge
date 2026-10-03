@@ -1,4 +1,6 @@
 import { challengeRoute, mergeChallengeStatements } from './challenges.js';
+import { checkName, displayName, NAME_POLICY_VERSION } from './name-policy.js';
+export { normalizeName } from './name-policy.js';
 // 合成大Clawd leaderboard API — a zero-dependency Cloudflare Worker backed by D1.
 //
 // Identity
@@ -24,12 +26,6 @@ import { challengeRoute, mergeChallengeStatements } from './challenges.js';
 // score needs an unused server-issued session, the real time since the session
 // started must fit the number of drops, and the score must be plausible for
 // that many drops. Everything is rate limited.
-
-const NAME_MIN = 2;
-const NAME_MAX = 12;
-// Chinese characters, ASCII letters/digits, _ - · (no spaces or symbols).
-const NAME_PATTERN = /^[\p{Script=Han}A-Za-z0-9_\-·]+$/u;
-const RESERVED = ['admin', 'administrator', 'root', 'system', '管理员', '官方', '系统', 'anthropic', 'claude', 'clawd'];
 
 const MAX_LEVEL = 11;
 const MAX_DROPS = 5000;
@@ -91,7 +87,7 @@ export default {
 async function route(request, env) {
   const url = new URL(request.url);
   const key = `${request.method} ${url.pathname.replace(/\/+$/, '')}`;
-  if(url.pathname.startsWith('/api/challenges/'))return challengeRoute(request,env,url,{ApiError,json,int,readJson,authenticate,rateLimit,publicPlayer});
+  if(url.pathname.startsWith('/api/challenges/'))return challengeRoute(request,env,url,{ApiError,json,int,readJson,authenticate,rateLimit,publicPlayer:p=>publicPlayer(p,env)});
   switch (key) {
     case 'GET /api/health':
       return json({ ok: true });
@@ -133,11 +129,11 @@ async function register(request, env) {
   const now = Date.now();
   const tag = await insertWithFreeTag(env.DB, name, (tag) => [
     env.DB.prepare(
-      'INSERT INTO players (id, name, name_key, tag, token_hash, created_at) VALUES (?, ?, ?, ?, ?, ?)',
-    ).bind(id, name, guestKey(name, tag), tag, tokenHash, now),
+      `INSERT INTO players (id, name, name_key, tag, token_hash, created_at, name_policy_version, name_policy_status) VALUES (?, ?, ?, ?, ?, ?, ?, 'allowed')`,
+    ).bind(id, name, guestKey(name, tag), tag, tokenHash, now, NAME_POLICY_VERSION),
     env.DB.prepare('INSERT INTO tokens (token_hash, player_id, created_at) VALUES (?, ?, ?)').bind(tokenHash, id, now),
   ]);
-  return json({ player: publicPlayer({ id, name, tag }), token }, 201);
+  return json({ player: publicPlayer({ id, name, tag }, env), token }, 201);
 }
 
 async function rename(request, env) {
@@ -146,14 +142,15 @@ async function rename(request, env) {
   await rateLimit(env.DB, `rename:${player.id}`, LIMITS.rename, '今天改名次数用完了，明天再来');
   const name = checkGuestName((await readJson(request)).name, env);
   const tag = await insertWithFreeTag(env.DB, name, (tag) => [
-    env.DB.prepare('UPDATE players SET name = ?, name_key = ?, tag = ? WHERE id = ? AND linuxdo_id IS NULL').bind(
+    env.DB.prepare(`UPDATE players SET name = ?, name_key = ?, tag = ?, name_policy_version = ?, name_policy_status = 'allowed' WHERE id = ? AND linuxdo_id IS NULL`).bind(
       name,
       guestKey(name, tag),
       tag,
+      NAME_POLICY_VERSION,
       player.id,
     ),
   ], { requireChange: true });
-  return json({ player: publicPlayer({ ...player, name, tag }) });
+  return json({ player: publicPlayer({ ...player, name, tag }, env) });
 }
 
 // Runs `statements(tag)` with a random free 4-digit tag, retrying on collisions.
@@ -180,7 +177,7 @@ async function logout(request, env) {
 async function me(request, env) {
   const player = await authenticate(request, env);
   return json({
-    player: publicPlayer(player),
+    player: publicPlayer(player, env),
     best: player.best_score,
     bestLevel: player.best_level,
     games: player.games,
@@ -310,7 +307,7 @@ async function upsertLinuxdoPlayer(db, user, mergeGuestId) {
     db.prepare(`INSERT INTO players (id, name, name_key, token_hash, avatar, trust_level, linuxdo_id, created_at)
       SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM players WHERE linuxdo_id = ?)`)
       .bind(crypto.randomUUID(), fields[0], `ld:${linuxdoId}`, tokenHash, fields[1], fields[2], linuxdoId, Date.now(), linuxdoId),
-    db.prepare('UPDATE players SET name = ?, avatar = ?, trust_level = ? WHERE linuxdo_id = ?').bind(...fields, linuxdoId),
+    db.prepare(`UPDATE players SET name = ?, avatar = ?, trust_level = ?, display_name_source = 'linuxdo', name_policy_version = NULL, name_policy_status = 'unreviewed' WHERE linuxdo_id = ?`).bind(...fields, linuxdoId),
     db.prepare(`UPDATE players SET (best_score, best_level, best_at) =
       (SELECT best_score, best_level, best_at FROM players WHERE id = ?)
       WHERE linuxdo_id = ? AND EXISTS (SELECT 1 FROM players g WHERE g.id = ? AND g.linuxdo_id IS NULL
@@ -342,7 +339,7 @@ async function exchangeLoginCode(request, env) {
   await env.DB.prepare('INSERT INTO tokens (token_hash, player_id, created_at) VALUES (?, ?, ?)')
     .bind(await sha256(token), player.id, Date.now())
     .run();
-  return json({ player: publicPlayer(player), token });
+  return json({ player: publicPlayer(player, env), token });
 }
 
 // ---------- game ----------
@@ -461,7 +458,7 @@ async function leaderboard(url, env) {
   const limit = Math.min(LEADERBOARD_MAX, Math.max(1, Number(url.searchParams.get('limit')) || 20));
   const [{ results }, count] = await Promise.all([
     env.DB.prepare(
-      `SELECT id, name, tag, avatar, trust_level, linuxdo_id, best_score AS score, best_level AS level, best_at AS at
+      `SELECT id, name, tag, avatar, trust_level, linuxdo_id, public_alias, best_score AS score, best_level AS level, best_at AS at
          FROM players WHERE best_score > 0
         ORDER BY best_score DESC, best_at ASC, id ASC LIMIT ?`,
     )
@@ -471,7 +468,7 @@ async function leaderboard(url, env) {
   ]);
   const entries = results.map((r, i) => ({
     rank: i + 1,
-    ...publicPlayer(r),
+    ...publicPlayer(r, env),
     score: r.score,
     level: r.level,
     at: r.at,
@@ -483,11 +480,11 @@ async function leaderboard(url, env) {
 
 // What other players may see about a player. `id` is an opaque handle used by
 // the client to highlight its own row; it grants nothing without a token.
-function publicPlayer(p) {
+function publicPlayer(p, env = {}) {
   const linuxdo = p.linuxdo_id != null;
   return {
     id: p.id,
-    name: p.name,
+    name: displayName(p, { blockedWords: env.BLOCKED_WORDS }),
     tag: linuxdo ? null : p.tag ?? null,
     linuxdo,
     avatar: linuxdo ? p.avatar ?? null : null,
@@ -535,29 +532,13 @@ async function rateLimit(db, key, { limit, windowMs }, message) {
   throw error;
 }
 
-export function normalizeName(raw) {
-  return typeof raw === 'string' ? raw.normalize('NFKC').trim() : '';
-}
-
 const guestKey = (name, tag) => `${name.toLowerCase()}#${tag}`;
 
 function checkGuestName(raw, env) {
-  const name = normalizeName(raw);
-  const length = [...name].length;
-  if (length < NAME_MIN || length > NAME_MAX) {
-    throw new ApiError(400, 'bad_name', `名字需要 ${NAME_MIN}~${NAME_MAX} 个字`);
-  }
-  if (!NAME_PATTERN.test(name)) {
-    throw new ApiError(400, 'bad_name', '名字只能包含中文、英文字母、数字和 _ - ·');
-  }
-  // Reserved names only block exact matches (no impersonating "官方"); the
-  // configurable BLOCKED_WORDS block any name that contains them.
-  const lower = name.toLowerCase();
-  const blocked = (env.BLOCKED_WORDS || '').split(',').map((w) => w.trim().toLowerCase());
-  if (RESERVED.includes(lower) || blocked.some((w) => w && lower.includes(w))) {
-    throw new ApiError(400, 'bad_name', '这个名字不能用，换一个吧');
-  }
-  return name;
+  const result = checkName(raw, { blockedWords: env.BLOCKED_WORDS });
+  if (!result.ok) throw new ApiError(result.status, result.error,
+    result.error === 'name_policy_unavailable' ? '名称校验暂不可用，请稍后再试' : '名字格式不符合要求或暂不可用，请换一个名字');
+  return result.name;
 }
 
 // Only send players back to pages on an allowed origin (no open redirects).
