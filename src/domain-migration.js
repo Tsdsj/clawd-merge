@@ -33,7 +33,12 @@ export function importTransfer(storage, packet, scope) {
     const existing=storage.getItem(key);
     if(existing===value)continue;
     if(existing!==null) {
-      if(key==='clawd-merge:best') {
+      if(key==='clawd-merge:player') {
+        let current,incoming;
+        try {current=JSON.parse(existing);incoming=JSON.parse(value);} catch {throw new Error('transfer_conflict');}
+        if(typeof current?.id==='string'&&current.id.length>0&&current.id===incoming?.id&&typeof current.token==='string'&&current.token.length>0)continue;
+        throw new Error('transfer_conflict');
+      } else if(key==='clawd-merge:best') {
         const next=String(Math.max(Number(existing)||0,Number(value)||0));
         if(next!==existing)changes.push([key,next,existing]);
       } else if(key==='clawd-merge:seen') {

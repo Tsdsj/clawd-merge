@@ -49,3 +49,13 @@ test('migration combines discovered characters while preserving a higher destina
   assert.deepEqual(JSON.parse(target.getItem('clawd-merge:seen')),[0,1,3,5]);
   assert.equal(target.getItem('clawd-merge:best'),'500');
 });
+
+test('an already signed-in instance of the same account keeps its newer token while receiving progress',async()=>{
+  const {collectTransfer,importTransfer}=await load();
+  const source=storage([['clawd-merge:player',JSON.stringify({id:'same-player',token:'old-token'})],['clawd-merge:best','800']]);
+  const current=JSON.stringify({id:'same-player',token:'new-token'});
+  const target=storage([['clawd-merge:player',current]]);
+  importTransfer(target,collectTransfer(source,scope),scope);
+  assert.equal(target.getItem('clawd-merge:player'),current);
+  assert.equal(target.getItem('clawd-merge:best'),'800');
+});
