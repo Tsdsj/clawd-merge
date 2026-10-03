@@ -885,6 +885,14 @@ body.modal-open .board {
   background: rgba(255, 255, 255, 0.08);
 }
 
+.credit a.migration-link {
+  width: auto;
+  padding: 0 4px;
+  white-space: nowrap;
+  border-radius: 4px;
+  text-decoration: none;
+}
+
 /* Keep the controls readable rather than squeezing labels on narrow phones. */
 @media (max-width: 480px) {
   .hud { display: grid; grid-template-columns: 1fr auto; }
