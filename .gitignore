@@ -14,3 +14,7 @@ deploy/runtime/
 *.sqlite-shm
 *.sqlite-wal
 !deploy/.env.example
+
+# Local browser artifacts can contain disposable authentication material.
+.playwright-cli/
+test-results/

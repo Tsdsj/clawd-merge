@@ -3,6 +3,8 @@ import { LEVELS, RAINBOW, defOf, drawCrabIcon, drawLegendIcon } from './crabs.js
 import { sfx } from './audio.js';
 import { leaderboard, displayName } from './leaderboard.js';
 import { createGuide } from './onboarding.js';
+import { AccountClient } from './account-client.js';
+import { createAccountUI } from './account-ui.js';
 import { PauseState } from './pause.js';
 import { createSaveFlow } from './save-flow.js';
 import { getStorage } from './storage.js';
@@ -32,6 +34,7 @@ const pauses = new PauseState(syncPause);
 let saves;
 let daily, sharing;
 let outbox, uploads;
+let accountClient, accountPanel, externalIdentityChanged=false;
 
 function updateGuide() {
   const step = guide.step;
@@ -125,6 +128,7 @@ game.debug = new URLSearchParams(location.search).has('debug');
 
 function restart() {
   if (modalOpen()) return;
+  if(externalIdentityChanged){openAccount();return;}
   if (saves?.blocked) { saves.show();return; }
   if (!game.over && game.drops > 0) {
     showModal(restartModal, true);
@@ -134,6 +138,7 @@ function restart() {
 }
 
 function restartNow() {
+  if(externalIdentityChanged){openAccount();return;}
   saves.newGame();
 }
 
@@ -161,12 +166,13 @@ function syncPause() {
   game.setPaused(!game.over && (pauses.paused || Boolean(daily?.active)));
   last = performance.now();
   document.body.classList.toggle('game-paused', game.paused);
-  const showCover = !game.over && !saves?.blocked && (pauses.has('manual') || pauses.has('background'));
+  const showCover = !game.over && !saves?.blocked && (pauses.has('manual') || pauses.has('background') || pauses.has('identity'));
   $('pause-cover').classList.toggle('hidden', !showCover);
-  $('pause-btn').textContent = showCover ? '继续' : '暂停';
+  $('pause-btn').textContent = pauses.has('identity')?'检查账号':showCover ? '继续' : '暂停';
+  $('resume-btn').textContent=pauses.has('identity')?'检查账号':'继续游戏';
   $('pause-btn').disabled = game.over || Boolean(saves?.blocked);
-  $('pause-title').textContent = pauses.has('background') ? '欢迎回来' : '已暂停';
-  $('pause-copy').textContent = pauses.has('background')
+  $('pause-title').textContent = pauses.has('identity')?'账号已变化':pauses.has('background') ? '欢迎回来' : '已暂停';
+  $('pause-copy').textContent = pauses.has('identity')?'原局已保留。请刷新后检查原身份，再继续原局。':pauses.has('background')
     ? '离开时已经暂停，准备好了再继续。' : '这一局先放在这里。准备好了，再继续。';
   $('paused-score').textContent = game.score;
   $('paused-rank').classList.toggle('hidden', !leaderboard.enabled);
@@ -176,6 +182,7 @@ function syncPause() {
 
 function togglePause() {
   if (game.over || modalOpen() || saves?.blocked) return;
+  if(pauses.has('identity')){openAccount();return;}
   if (pauses.has('manual') || pauses.has('background')) {
     pauses.resume();
     board.focus({ preventScroll: true });
@@ -207,21 +214,19 @@ function beginRound() {
 
 // ---------- leaderboard & account ----------
 
-const nameModal = $('name-modal');
 const rankModal = $('rank-modal');
-const accountModal = $('account-modal');
 const restartModal = $('restart-modal');
 const restoreModal = $('restore-modal');
 const pendingModal = $('pending-modal');
 const removeResultModal = $('remove-result-modal');
 const finalRank = $('final-rank');
-const modals = [nameModal, rankModal, accountModal, restartModal, restoreModal,pendingModal,removeResultModal];
+const modals = [rankModal, restartModal, restoreModal,pendingModal,removeResultModal];
 const modalOpen = () => document.body.classList.contains('modal-open');
 const modalFocus = new WeakMap();
 
 function showModal(modal, open) {
-  if (!open && modal === nameModal) leaderboard.cancelIdentityRequests();
-  if(open && daily?.active && modal===restoreModal)return;
+  if (!open && modal === accountPanel?.element) accountPanel.hostClosed();
+  if(open && modal===restoreModal && (daily?.active || accountPanel&&!accountPanel.element.classList.contains('hidden')))return;
   if (modal === restoreModal && !open) saves?.invalidateOffer();
   if (open) modalFocus.set(modal, document.activeElement);
   modal.classList.toggle('hidden', !open);
@@ -279,133 +284,57 @@ function showLocalResult() {
     : '加入后从下一局开始上榜，本局无法补交。';
 }
 
-function askName(message = '') {
-  drawCrabIcon($('name-crab'), 1, 64, 40, dpr);
-  $('name-error').textContent = message;
-  $('name-round-note').textContent=daily?.active?'练习不能补交成正式成绩；选择身份本身不会扣正式机会。':'当前本地局不能补交。局中登录会离开页面，建议打完后再加入。';
-  $('name-title').textContent=daily?.active?'选择身份，参加正式挑战':'让下一局，登上榜单';
-  nameModal.querySelector('.sheet-sub').textContent=daily?.active?'游客与 LINUX DO 都可参加；领取正式凭证后才消耗机会。':'不加入也能继续玩。选择一个身份，让下一局成绩参与排名。';
-  showModal(nameModal, true);
+function accountGuard(action,{confirmed=false}={}) {
+  if(externalIdentityChanged)return {message:'账号已在其他页面变化，请刷新后检查原存档。'};
+  const entries=outbox?.list()||[],p=leaderboard.player;
+  if(entries.some(e=>!e.durable&&!e.journaled&&!['accepted','removed'].includes(e.state))||daily&&!daily.canNavigateForAuth())
+    return {message:'有进度或成绩尚未安全保存，请先重试保存或处理记录。'};
+  const sameIdentity=['mutation','login'].includes(action)||(action==='navigate'&&p?.linuxdo);
+  if(sameIdentity){
+    if(leaderboard.sessionStatus==='pending'||entries.some(e=>e.state==='uploading')||daily?.credentialRotationBlocked())
+      return {message:'正在核对开局或上传成绩，请等待完成后再更新登录状态。'};
+    return null;
+  }
+  if(daily?.hasBoundWork(p?.id)||p&&uploads?.hasUnresolved(p.id))return {message:'请先处理原账号的未完成正式局、未知开局或待提交记录。'};
+  if(game.drops>0&&!game.over&&!saves?.blocked&&!saves?.temporary&&!saves.flush())return {message:'当前经典局未能保存，请先处理保存问题。'};
+  if(action==='navigate'&&p?.account?.kind==='password')return {message:'请先退出当前账号，再用 Linux.do 登录。账号绑定会在后续阶段开放。'};
+  const messages=[];
+  if(p&&(!p.account||p.account.kind==='guest')&&!p.linuxdo&&action==='logout')messages.push('游客身份没有密码。退出后可能无法找回该身份与历史，请确认已处理成绩。');
+  if(['logout','navigate'].includes(action)&&game.drops>0&&!game.over&&leaderboard.sessionStatus==='online')messages.push('当前经典在线局将转为本地继续，不再上传本局排名。');
+  if(messages.length&&!confirmed)return {confirm:true,message:messages.join(' ')};
+  return null;
 }
-
-$('join-btn').addEventListener('click', () => askName());
-$('result-join').addEventListener('click', () => askName());
-$('name-close').addEventListener('click', () => showModal(nameModal, false));
-$('help-btn').addEventListener('click', () => comfortPanel.open({mode:'classic'}));
-$('cancel-restart').addEventListener('click', () => showModal(restartModal, false));
-$('confirm-restart').addEventListener('click', restartNow);
-$('pause-btn').addEventListener('click', togglePause);
-$('resume-btn').addEventListener('click', togglePause);
-$('guide-dismiss').addEventListener('click', () => { guide.dismiss(); updateGuide(); });
-for (const modal of [nameModal]) modal.addEventListener('click', (e) => {
-  if (e.target === modal) showModal(modal, false);
+accountClient=new AccountClient({identity:leaderboard,request:(...args)=>leaderboard.accountRequest(...args),storage:getStorage,
+  beforeApply(data,snapshot){if(snapshot.id&&data.player.id!==snapshot.id)throw new Error('这是另一个账号，请先退出当前账号再登录。');},
 });
-
-$('name-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const name = $('name-input').value.trim();
-  const button = $('name-submit');
-  button.disabled = true;
-  $('name-error').textContent = '';
-  try {
-    await leaderboard.register(name);
-    showModal(nameModal, false);
-    showPlayer();
-    guide.dismiss();
-    updateGuide();
-    board.focus();
-    toast(daily?.active?'身份已就绪，可在每日挑战入口确认正式开局。':'已加入！本局继续本地游玩，下一局参与排名。', 4500);
-  } catch (err) {
-    $('name-error').textContent = err.message;
-  } finally {
-    button.disabled = false;
-  }
+accountPanel=createAccountUI({client:accountClient,identity:leaderboard,
+  setOpen(open){
+    if(open)for(const m of modals)if(m!==accountPanel.element&&!m.classList.contains('hidden'))showModal(m,false);
+    showModal(accountPanel.element,open);
+    if(!open){showPlayer();if(saves?.blocked&&!daily?.active)void saves.initialize();}
+  },
+  onChanged(){showPlayer();if(leaderboard.player){guide.dismiss();updateGuide();if(!daily?.active&&!saves?.blocked&&!game.over&&game.drops===0&&!leaderboard.round)beginRound();}},
+  guard:accountGuard,
+  async onLinuxdo(){
+    if(!leaderboard.player?.linuxdo&&game.drops>0&&!game.over&&leaderboard.sessionStatus==='online'){leaderboard.round=null;leaderboard.session=null;saves?.flush();}
+    return leaderboard.loginWithLinuxdo();
+  },
+  onPending(){uploads?.open('请先处理原账号的待提交记录。');},
+  onReload(){if(daily&&!daily.canNavigateForAuth()){toast('每日进度尚未安全保存，请先处理记录再刷新。',6000);return;}if(outbox?.list().some(e=>!e.durable&&!e.journaled&&!['accepted','removed'].includes(e.state))){uploads.open('有成绩尚未安全保存，请先处理，再刷新页面。');return;}if(!saves?.blocked)saves?.flush();location.reload();},
+  notify:toast,
 });
-
-$('name-offline').addEventListener('click', () => {
-  showModal(nameModal, false);
-});
-
-// Leaves the page for LINUX DO; comes back with #login=<code>.
-async function goLinuxdo(button, errorEl) {
-  if(daily&&!daily.canNavigateForAuth()){errorEl.textContent='每日挑战还有进度或结果未安全保存，请先重试保存或处理记录，再离开页面登录。';return;}
-  if(leaderboard.player&&!leaderboard.player.linuxdo&&daily?.hasBoundWork(leaderboard.player.id)){errorEl.textContent='绑定前请先处理每日挑战中的未完成正式局、未知开局或待提交成绩。';return;}
-  const unsettled=leaderboard.player&&!leaderboard.player.linuxdo&&uploads.hasUnresolved(leaderboard.player.id);
-  const unsaved=outbox.list().some(e=>!e.durable&&!e.journaled&&e.state!=='accepted');
-  if(unsettled||unsaved) {
-    uploads.open(unsaved?'有成绩尚未保存，请先重试保存或明确移除，再离开页面登录。':'绑定前还有游客成绩待处理，请先补传或明确移除记录。');
-    return;
-  }
-  if (game.drops > 0 && !game.over) { const saved=saves?.flush();if(!confirm(saved?'登录会离开页面，已保存的经典局可以续玩。现在去登录吗？':'当前经典局尚未保存成功，离开可能丢失进度。仍去登录吗？'))return; }
-  button.disabled = true;
-  errorEl.textContent = '';
-  try {
-    await leaderboard.loginWithLinuxdo();
-  } catch (err) {
-    errorEl.textContent = err.message;
-    button.disabled = false;
-  }
-}
-$('ld-login').addEventListener('click', (e) => goLinuxdo(e.currentTarget, $('name-error')));
-$('acc-ld').addEventListener('click', (e) => goLinuxdo(e.currentTarget, $('acc-error')));
-$('acc-reauth').addEventListener('click', (e) => goLinuxdo(e.currentTarget, $('acc-error')));
-
-function openAccount(message = '') {
-  const p = leaderboard.player;
-  if (!p) return;
-  const hasAvatar = Boolean(p.linuxdo && p.avatar);
-  $('acc-avatar').classList.toggle('hidden', !hasAvatar);
-  if (hasAvatar) $('acc-avatar').src = p.avatar;
-  $('acc-crab').classList.toggle('hidden', hasAvatar);
-  drawCrabIcon($('acc-crab'), 1, 64, 40, dpr);
-  $('acc-name').replaceChildren(nameEl(p, ''));
-  $('acc-sub').textContent = p.linuxdo
-    ? `LINUX DO 账号 · 信任等级 ${p.trustLevel ?? 0}`
-    : '游客 · 身份只保存在这个浏览器';
-  $('acc-guest').classList.toggle('hidden', p.linuxdo);
-  $('acc-reauth').classList.toggle('hidden', !p.linuxdo);
-  $('rename-input').value = '';
-  $('rename-form').querySelector('button').disabled = leaderboard.renaming;
-  $('acc-error').textContent = message;
-  showModal(accountModal, true);
-}
-
-$('player-chip').addEventListener('click', () => openAccount());
-$('acc-close').addEventListener('click', () => showModal(accountModal, false));
-accountModal.addEventListener('click', (e) => {
-  if (e.target === accountModal) showModal(accountModal, false);
-});
-
-$('rename-form').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const owner=leaderboard.player;
-  const button=e.currentTarget.querySelector('button');
-  button.disabled=true;
-  try {
-    await leaderboard.rename($('rename-input').value.trim());
-    showPlayer();
-    if(!accountModal.classList.contains('hidden'))openAccount();
-    toast('改好名字了');
-  } catch (err) {
-    if(!accountModal.classList.contains('hidden')&&leaderboard.player?.token===owner?.token)$('acc-error').textContent = err.message;
-  } finally {
-    button.disabled=leaderboard.renaming;
-  }
-});
-
-$('acc-logout').addEventListener('click', async () => {
-  if(daily?.hasBoundWork(leaderboard.player?.id)){$('acc-error').textContent='退出前请先处理每日挑战的正式资格、未确认开局和待提交成绩。';return;}
-  const guest = !leaderboard.player?.linuxdo;
-  if(guest && uploads.hasUnresolved(leaderboard.player?.id)) {
-    uploads.open('退出游客身份前，请先补传或明确移除待处理成绩。');return;
-  }
-  if (guest && !confirm('游客身份只存在这个浏览器里，退出后这个名字和成绩就找不回来了。确定退出吗？')) return;
-  const pending = leaderboard.logout();
-  showModal(accountModal, false);
-  showPlayer();
-  toast('已退出，本局可继续本地游玩。');
-  await pending;
-});
+modals.push(accountPanel.element);
+function askName(message=''){void accountPanel.open('entry',message);if(externalIdentityChanged)accountPanel.externalIdentityChanged();}
+function openAccount(message=''){void accountPanel.open(leaderboard.player?'account':'entry',message);if(externalIdentityChanged)accountPanel.externalIdentityChanged();}
+$('join-btn').addEventListener('click',()=>askName());
+$('result-join').addEventListener('click',()=>askName());
+$('player-chip').addEventListener('click',()=>openAccount());
+$('help-btn').addEventListener('click',()=>comfortPanel.open({mode:'classic'}));
+$('cancel-restart').addEventListener('click',()=>showModal(restartModal,false));
+$('confirm-restart').addEventListener('click',restartNow);
+$('pause-btn').addEventListener('click',togglePause);
+$('resume-btn').addEventListener('click',togglePause);
+$('guide-dismiss').addEventListener('click',()=>{guide.dismiss();updateGuide();});
 
 leaderboard.onUnauthorized = () => {
   leaderboard.forget();
@@ -629,9 +558,9 @@ window.addEventListener('keydown', (e) => {
   if (daily?.active && !modalOpen()) return;
   if (modalOpen()) {
     const active = modals.find((m) => !m.classList.contains('hidden'));
-    if (e.code === 'Escape') showModal(active, false);
+    if (e.code === 'Escape') { e.preventDefault();if(active===accountPanel.element)accountPanel.close();else showModal(active, false); }
     if (e.code === 'Tab') {
-      const items = [...active.querySelectorAll('button:not(:disabled), input:not(:disabled), [tabindex="0"]')]
+      const items = [...active.querySelectorAll('button:not(:disabled), input:not(:disabled), summary, [tabindex="0"]')]
         .filter((el) => el.getClientRects().length);
       const first = items[0], last = items.at(-1);
       if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
@@ -736,14 +665,23 @@ uploads=createUploadUI({outbox,showModal,isGameOver:()=>game.over,openRanks,noti
 });
 window.addEventListener('storage',event=>{
   outbox.observe(event.key,event.newValue);
-  if(event.key===leaderboard.playerStorageKey)outbox.wakeIdentity();
+  if(event.key===leaderboard.playerStorageKey||event.key===null){
+    let persisted=null;try{persisted=event.newValue?JSON.parse(event.newValue):null;}catch{}
+    const current=leaderboard.player;
+    if(persisted?.id!==current?.id||persisted?.token!==current?.token){
+      if(!saves?.blocked)saves?.flush();externalIdentityChanged=true;
+      pauses.set('identity',true);daily?.setExternalModal(true,'identity');void accountPanel.open('entry');accountPanel.externalIdentityChanged();
+      toast('账号已在其他页面变化。本页已暂停，请刷新后检查原存档。',7000);
+    }
+    outbox.wakeIdentity();
+  }
 });
 window.addEventListener('online',()=>outbox.wakeOnline());
 window.addEventListener('pagehide',()=>outbox.stop());
 window.addEventListener('pageshow',event=>{if(event.persisted)outbox.start();});
 daily=createChallengeUI({comfort:()=>comfortSettings.effects,onHelp:formal=>comfortPanel.open({mode:'daily',formal}),onShare:model=>void sharing.result(model),scope:leaderboard.saveScope,
   getPlayer:()=>leaderboard.uploadPlayer(),request:(path,options)=>leaderboard.challengeRequest(path,options),
-  requestIdentity:()=>askName(),requestAccount:()=>{leaderboard.player=leaderboard.uploadPlayer();leaderboard.player?openAccount():askName();},
+  requestIdentity:()=>askName(),requestAccount:()=>{leaderboard.player?openAccount():askName();},
   classicSummary:()=>game.drops&&!game.over?`经典局仍保留 · ${game.score} 分，可随时切回继续。`:'经典模式与挑战使用独立存档。',
   onEnter(){
     if(modalOpen())return false;

@@ -1224,6 +1224,7 @@ export function createChallengeUI({
       return active;
     },
     hasBoundWork: (playerId) => uploads.hasBoundWork(playerId),
+    credentialRotationBlocked:()=>Boolean(session.pendingIntent||['starting','intent-invalid'].includes(session.status)||uploads.queue.list().some(e=>e.state==='uploading')),
     canNavigateForAuth() {
       if (
         session.status === "active" &&

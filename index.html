@@ -19,6 +19,7 @@
     <link rel="manifest" href="manifest.webmanifest" />
     <script src="runtime-config.js"></script>
     <link rel="stylesheet" href="src/style.css" />
+    <link rel="stylesheet" href="src/account.css" />
     <link rel="stylesheet" href="src/comfort.css" />
     <link rel="stylesheet" href="src/challenge.css" />
   </head>
@@ -253,65 +254,6 @@
       <div id="daily-dialog-extra"></div>
       <div id="daily-dialog-actions"></div>
     </dialog>
-
-    <div class="modal hidden" id="name-modal" role="dialog" aria-modal="true" aria-labelledby="name-title">
-      <form class="sheet" id="name-form" autocomplete="off" novalidate>
-        <button class="icon-btn sheet-close" id="name-close" type="button" aria-label="关闭身份选择">✕</button>
-        <canvas id="name-crab"></canvas>
-        <h2 id="name-title">让下一局，登上榜单</h2>
-        <p class="sheet-sub">不加入也能继续玩。选择一个身份，让下一局成绩参与排名。</p>
-        <button class="btn big linuxdo-btn" id="ld-login" type="button">
-          <svg class="ld-logo" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">
-            <clipPath id="ld-clip"><circle cx="10" cy="10" r="10" /></clipPath>
-            <g clip-path="url(#ld-clip)">
-              <rect width="20" height="7" fill="#1c1c1e" />
-              <rect y="7" width="20" height="6" fill="#f0f0f0" />
-              <rect y="13" width="20" height="7" fill="#ffb003" />
-            </g>
-          </svg>
-          用 LINUX DO 登录
-        </button>
-        <p class="hint">推荐：名字就是你的 L 站用户名，换设备成绩也不丢</p>
-        <div class="divider"><span>或者当游客</span></div>
-        <input id="name-input" aria-label="游客名字" maxlength="12" placeholder="起个名字，2~12 个字" enterkeyhint="go" spellcheck="false" />
-        <p class="hint">可以和别人重名，会自动加上 #编号；只保存在这个浏览器</p>
-        <p class="error" id="name-error" role="alert"></p>
-        <button class="btn big ghost" id="name-submit" type="submit">以游客身份加入</button>
-        <p class="hint" id="name-round-note">当前本地局不能补交。局中登录会离开页面，建议打完后再加入。</p>
-        <button class="link-btn" id="name-offline" type="button">先继续玩</button>
-      </form>
-    </div>
-
-    <div class="modal hidden" id="account-modal" role="dialog" aria-modal="true" aria-labelledby="acc-name">
-      <div class="sheet account-sheet">
-        <button class="icon-btn sheet-close" id="acc-close" aria-label="关闭">✕</button>
-        <img class="avatar big hidden" id="acc-avatar" alt="" />
-        <canvas id="acc-crab"></canvas>
-        <h2 id="acc-name"></h2>
-        <p class="sheet-sub" id="acc-sub"></p>
-        <div class="guest-only" id="acc-guest">
-          <button class="btn big linuxdo-btn" id="acc-ld" type="button">
-            <svg class="ld-logo" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true">
-            <clipPath id="ld-clip2"><circle cx="10" cy="10" r="10" /></clipPath>
-            <g clip-path="url(#ld-clip2)">
-              <rect width="20" height="7" fill="#1c1c1e" />
-              <rect y="7" width="20" height="6" fill="#f0f0f0" />
-              <rect y="13" width="20" height="7" fill="#ffb003" />
-            </g>
-          </svg>
-            绑定 LINUX DO 账号
-          </button>
-          <p class="hint">当前的最佳成绩会合并到 L 站账号上</p>
-          <form class="rename-row" id="rename-form" autocomplete="off" novalidate>
-            <input id="rename-input" maxlength="12" placeholder="新名字" spellcheck="false" />
-            <button class="btn" type="submit">改名</button>
-          </form>
-        </div>
-        <button class="btn ghost hidden" id="acc-reauth" type="button">重新登录 LINUX DO</button>
-        <p class="error" id="acc-error" role="alert"></p>
-        <button class="link-btn" id="acc-logout" type="button">退出登录</button>
-      </div>
-    </div>
 
     <div class="toast hidden" id="toast" role="status"></div>
 

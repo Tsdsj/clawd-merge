@@ -283,3 +283,21 @@ test("CLI opens SQLite read-only, produces review-only files and refuses overwri
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('A04 auth maintenance is preview-only, redacts expired receipts and retains live sessions/recovery codes',async()=>{
+ const db=createD1();try{
+  player(db,'a');const now=asOf;
+  db.raw.prepare("INSERT INTO tokens(token_hash,player_id,created_at,auth_method,auth_version,authenticated_at,expires_at) VALUES ('expired-auth','a',1,'password',0,1,?)").run(now-1);
+  db.raw.prepare("INSERT INTO tokens(token_hash,player_id,created_at,auth_method,auth_version,authenticated_at,expires_at) VALUES ('live-auth','a',1,'password',0,1,?)").run(now+600000);
+  db.raw.prepare("INSERT INTO recovery_codes VALUES('a',?,1,1)").run('a'.repeat(64));
+  const insert=db.raw.prepare("INSERT INTO auth_operations(request_id,actor_scope,action,retry_secret_hash,status,created_at,expires_at,response_ciphertext,nonce,key_version,login_handle) VALUES (?,'private-actor','register',?,'complete',1,?,'private-ciphertext','nonce','v1','private-handle')");
+  insert.run('expired-op','b'.repeat(64),now-1);insert.run('live-op','c'.repeat(64),now+600000);
+  const report=await collectReport(query(db),options);assert.equal(report.cleanup.auth_operations_redact,1);assert.equal(report.cleanup.tokens,1);
+  assert.equal(db.raw.prepare("SELECT response_ciphertext FROM auth_operations WHERE request_id='expired-op'").get().response_ciphertext,'private-ciphertext');
+  const generated=cleanupStatements(report);for(const statement of generated)db.raw.exec(statement.sql);
+  assert.ok(db.raw.prepare("SELECT token_hash FROM tokens WHERE token_hash='live-auth'").get());assert.equal(db.raw.prepare("SELECT token_hash FROM tokens WHERE token_hash='expired-auth'").get(),undefined);
+  const expired=db.raw.prepare("SELECT * FROM auth_operations WHERE request_id='expired-op'").get();assert.equal(expired.status,'stale');assert.equal(expired.response_ciphertext,null);assert.equal(expired.login_handle,null);
+  assert.equal(db.raw.prepare("SELECT response_ciphertext FROM auth_operations WHERE request_id='live-op'").get().response_ciphertext,'private-ciphertext');assert.equal(db.raw.prepare('SELECT count(*) n FROM recovery_codes').get().n,1);
+  const serialized=JSON.stringify(report);for(const value of ['private-actor','private-ciphertext','private-handle'])assert.ok(!serialized.includes(value));
+ }finally{db.raw.close();}
+});

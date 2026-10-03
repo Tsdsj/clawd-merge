@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { openDatabase } from './sqlite.mjs';
 import { createApiServer } from './http.mjs';
+import { configurePasswordAuth } from './password-config.mjs';
 
 process.umask(0o077);
 const secret = process.env.LINUXDO_CLIENT_SECRET_FILE
@@ -10,6 +11,7 @@ if (!secret || !process.env.LINUXDO_CLIENT_ID) throw new Error('LINUX DO credent
 const db = openDatabase(process.env.DB_FILE || '/data/clawd.sqlite');
 const env = {
   DB: db,
+  PASSWORD_AUTH: configurePasswordAuth(db),
   PUBLIC_ORIGIN: process.env.PUBLIC_ORIGIN,
   GAME_URL: process.env.GAME_URL || `${process.env.PUBLIC_ORIGIN}/`,
   ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS || process.env.PUBLIC_ORIGIN,

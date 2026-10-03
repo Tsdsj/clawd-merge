@@ -30,7 +30,7 @@ const options = {
   host: '127.0.0.1',
   port: 0,
   modulesRoot: fileURLToPath(new URL('../../', import.meta.url)),
-  modules: ['leaderboard/src/index.js','leaderboard/src/challenges.js','leaderboard/src/name-policy.js','leaderboard/data/name-policy-v1.js','src/rules.js'].map(path=>({type:'ESModule',path:fileURLToPath(new URL('../../'+path,import.meta.url))})),
+  modules: ['leaderboard/src/index.js','leaderboard/src/challenges.js','leaderboard/src/name-policy.js','leaderboard/src/account-state.js','leaderboard/data/name-policy-v1.js','src/rules.js'].map(path=>({type:'ESModule',path:fileURLToPath(new URL('../../'+path,import.meta.url))})),
   compatibilityDate,
   d1Databases: { DB: 'isolated-receipt-test' },
   d1Persist: false,

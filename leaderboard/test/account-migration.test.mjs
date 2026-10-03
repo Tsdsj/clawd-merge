@@ -138,7 +138,7 @@ test("production migrator upgrades exported 0004 history once and preserves toke
   let db = openDatabase(path);
   assert.equal(
     db.raw.prepare("SELECT count(*) n FROM app_migrations").get().n,
-    5,
+    readdirSync(new URL('../migrations/',import.meta.url)).filter(x=>x.endsWith('.sql')).length,
   );
   const before = plain(
     db.raw.prepare("SELECT * FROM tokens ORDER BY token_hash").all(),

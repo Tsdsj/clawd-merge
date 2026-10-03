@@ -1,4 +1,5 @@
 import { challengeRoute, mergeChallengeStatements } from './challenges.js';
+import { AUTH_QUERY, sessionCurrent, accountState } from './account-state.js';
 import { checkName, displayName, NAME_POLICY_VERSION } from './name-policy.js';
 export { normalizeName } from './name-policy.js';
 // 合成大Clawd leaderboard API — a zero-dependency Cloudflare Worker backed by D1.
@@ -88,7 +89,14 @@ async function route(request, env) {
   const url = new URL(request.url);
   const key = `${request.method} ${url.pathname.replace(/\/+$/, '')}`;
   if(url.pathname.startsWith('/api/challenges/'))return challengeRoute(request,env,url,{ApiError,json,int,readJson,authenticate,rateLimit,publicPlayer:p=>publicPlayer(p,env)});
+  const passwordPaths = new Set(['/api/auth/operations','/api/auth/operations/result','/api/auth/operations/cancel','/api/auth/password/register','/api/auth/password/login','/api/auth/password/recover','/api/account/password','/api/account/reauth','/api/account/recovery-code']);
+  if (request.method === 'POST' && passwordPaths.has(url.pathname)) {
+    if (!env.PASSWORD_AUTH?.available) throw new ApiError(503,'password_auth_disabled','密码服务暂不可用，请稍后再试');
+    return env.PASSWORD_AUTH.handle(request,env,{ApiError,json,publicPlayer:p=>publicPlayer(p,env)});
+  }
   switch (key) {
+    case 'GET /api/auth/capabilities':
+      return json({passwordEnabled:Boolean(env.PASSWORD_AUTH?.available),registrationEnabled:Boolean(env.PASSWORD_AUTH?.available&&NAME_POLICY_VERSION),linuxdoEnabled:Boolean(env.LINUXDO_CLIENT_ID&&env.LINUXDO_CLIENT_SECRET),oauthAccountActions:false,serverNow:Date.now()},200,{'Cache-Control':'no-store'});
     case 'GET /api/health':
       return json({ ok: true });
     case 'POST /api/register':
@@ -170,13 +178,20 @@ async function insertWithFreeTag(db, name, statements, { requireChange = false }
 
 async function logout(request, env) {
   const { tokenHash } = await authenticate(request, env);
-  await env.DB.prepare('DELETE FROM tokens WHERE token_hash = ?').bind(tokenHash).run();
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM tokens WHERE token_hash=?').bind(tokenHash),
+    env.DB.prepare('DELETE FROM oauth_states WHERE source_token_hash=?').bind(tokenHash),
+    env.DB.prepare('DELETE FROM login_codes WHERE source_token_hash=?').bind(tokenHash),
+    env.DB.prepare("UPDATE auth_operations SET status='stale' WHERE actor_token_hash=? AND status!='complete'").bind(tokenHash),
+  ]);
   return json({ ok: true });
 }
 
 async function me(request, env) {
   const player = await authenticate(request, env);
+  const hasRecovery=await env.DB.prepare('SELECT 1 FROM recovery_codes WHERE player_id=?').bind(player.id).first();
   return json({
+    ...accountState(player,hasRecovery,{passwordEnabled:Boolean(env.PASSWORD_AUTH?.available),linuxdoEnabled:Boolean(env.LINUXDO_CLIENT_ID&&env.LINUXDO_CLIENT_SECRET),namingEnabled:Boolean(NAME_POLICY_VERSION)}),
     player: publicPlayer(player, env),
     best: player.best_score,
     bestLevel: player.best_level,
@@ -196,14 +211,15 @@ async function linuxdoStart(request, env) {
   const safeReturn = checkReturnTo(returnTo, env);
   // A signed-in guest carries their token so their scores can be merged.
   const guest = request.headers.get('Authorization') ? await authenticate(request, env) : null;
+  if(guest?.credential_player_id)throw new ApiError(409,'credentials_exist','请使用账号面板的绑定入口；切换账号请先退出');
 
   const state = randomToken();
   const now = Date.now();
   await env.DB.batch([
     env.DB.prepare('DELETE FROM oauth_states WHERE created_at < ?').bind(now - OAUTH_STATE_TTL_MS),
     env.DB.prepare(
-      'INSERT INTO oauth_states (state_hash, merge_player_id, return_to, created_at) VALUES (?, ?, ?, ?)',
-    ).bind(await sha256(state), guest && guest.linuxdo_id == null ? guest.id : null, safeReturn, now),
+      'INSERT INTO oauth_states (state_hash, merge_player_id, return_to, created_at, source_player_id, source_token_hash, auth_version, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    ).bind(await sha256(state), guest && guest.linuxdo_id == null ? guest.id : null, safeReturn, now, guest?.id??null, guest?.tokenHash??null, guest?.auth_version??null, now+OAUTH_STATE_TTL_MS),
   ]);
 
   const url = new URL(env.LINUXDO_AUTHORIZE_URL || LINUXDO.authorize);
@@ -240,16 +256,28 @@ async function linuxdoCallback(request, env) {
     if (user.trust_level < minLevel) {
       throw new ApiError(403, 'linuxdo_level', `需要 LINUX DO 信任等级 ${minLevel} 级以上才能上榜`);
     }
-    const playerId = await upsertLinuxdoPlayer(env.DB, user, row.merge_player_id);
-    const loginCode = randomToken();
+    const sourceValid=async(targetId=null)=>{
+      if(!row.source_player_id&&!row.merge_player_id)return true;
+      if(!row.source_token_hash)return false;
+      const source=await env.DB.prepare(AUTH_QUERY).bind(row.source_token_hash).first();
+      if(!sessionCurrent(source))return false;
+      if(targetId)return source.id===targetId&&source.linuxdo_id===Number(user.id);
+      if(source.id===row.source_player_id)return source.auth_version===row.auth_version&&!source.credential_player_id&&(source.linuxdo_id==null||source.linuxdo_id===Number(user.id));
+      return source.linuxdo_id===Number(user.id)&&!await env.DB.prepare('SELECT id FROM players WHERE id=?').bind(row.source_player_id).first();
+    };
+    if(!await sourceValid())throw new ApiError(409,'identity_changed','账号已变化，请重新发起登录');
+    const playerId = await upsertLinuxdoPlayer(env.DB, user, row.merge_player_id, row);
+    if(!await sourceValid(playerId))throw new ApiError(409,'identity_changed','账号已变化，请重新发起登录');
+    const version=(await env.DB.prepare('SELECT auth_version FROM players WHERE id=?').bind(playerId).first()).auth_version;
+    const loginCode = randomToken(), codeHash=await sha256(loginCode), now=Date.now();
     await env.DB.batch([
-      env.DB.prepare('DELETE FROM login_codes WHERE created_at < ?').bind(Date.now() - LOGIN_CODE_TTL_MS),
-      env.DB.prepare('INSERT INTO login_codes (code_hash, player_id, created_at) VALUES (?, ?, ?)').bind(
-        await sha256(loginCode),
-        playerId,
-        Date.now(),
-      ),
+      env.DB.prepare('DELETE FROM login_codes WHERE created_at < ?').bind(now-LOGIN_CODE_TTL_MS),
+      env.DB.prepare(`INSERT INTO login_codes(code_hash,player_id,created_at,auth_version,source_token_hash,expires_at)
+        SELECT ?,id,?,auth_version,?,? FROM players WHERE id=? AND auth_version=?
+        AND (? IS NULL OR EXISTS(SELECT 1 FROM tokens t WHERE t.token_hash=? AND t.player_id=players.id AND t.auth_version=players.auth_version AND (t.expires_at IS NULL OR t.expires_at>?)))`)
+        .bind(codeHash,now,row.source_token_hash,now+LOGIN_CODE_TTL_MS,playerId,version,row.source_token_hash,row.source_token_hash,now),
     ]);
+    if(!await env.DB.prepare('SELECT code_hash FROM login_codes WHERE code_hash=?').bind(codeHash).first())throw new ApiError(409,'identity_changed','账号已变化，请重新登录');
     return back({ login: loginCode });
   } catch (err) {
     if (!(err instanceof ApiError)) console.error(err);
@@ -289,39 +317,47 @@ async function fetchLinuxdoUser(accessToken, env) {
 }
 
 // Creates or refreshes the account for a LINUX DO user; merges a guest into it.
-async function upsertLinuxdoPlayer(db, user, mergeGuestId) {
-  const linuxdoId = Number(user.id);
-  const fields = [String(user.username).slice(0, 40), avatarUrl(user.avatar_template), Number(user.trust_level) || 0];
-  const guestId = mergeGuestId || null;
-  const tokenHash = await sha256(randomToken());
-  const target = '(SELECT id FROM players WHERE linuxdo_id = ?)';
-  const stillGuest = 'EXISTS (SELECT 1 FROM players WHERE id = ? AND linuxdo_id IS NULL)';
-  // D1 batch / production SQLite serialize this entire transaction. All
-  // decisions use current rows, never a pre-transaction score/profile copy.
-  // Removing the source in the same transaction makes repeated merges no-ops.
-  await db.batch([
-    db.prepare(`UPDATE players SET linuxdo_id = ?, name_key = ?, tag = NULL
-      WHERE id = ? AND linuxdo_id IS NULL
-      AND NOT EXISTS (SELECT 1 FROM players WHERE linuxdo_id = ?)`)
-      .bind(linuxdoId, `ld:${linuxdoId}`, guestId, linuxdoId),
-    db.prepare(`INSERT INTO players (id, name, name_key, token_hash, avatar, trust_level, linuxdo_id, created_at)
-      SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM players WHERE linuxdo_id = ?)`)
-      .bind(crypto.randomUUID(), fields[0], `ld:${linuxdoId}`, tokenHash, fields[1], fields[2], linuxdoId, Date.now(), linuxdoId),
-    db.prepare(`UPDATE players SET name = ?, avatar = ?, trust_level = ?, display_name_source = 'linuxdo', name_policy_version = NULL, name_policy_status = 'unreviewed' WHERE linuxdo_id = ?`).bind(...fields, linuxdoId),
-    db.prepare(`UPDATE players SET (best_score, best_level, best_at) =
-      (SELECT best_score, best_level, best_at FROM players WHERE id = ?)
-      WHERE linuxdo_id = ? AND EXISTS (SELECT 1 FROM players g WHERE g.id = ? AND g.linuxdo_id IS NULL
-        AND (g.best_score > players.best_score OR (g.best_score = players.best_score AND g.best_score > 0 AND g.best_at < players.best_at)))`)
-      .bind(guestId, linuxdoId, guestId),
-    db.prepare(`UPDATE players SET games = games + (SELECT games FROM players WHERE id = ?)
-      WHERE linuxdo_id = ? AND ${stillGuest}`).bind(guestId, linuxdoId, guestId),
-    ...['scores', 'score_receipts', 'tokens', 'sessions'].map(table =>
-      db.prepare(`UPDATE ${table} SET player_id = ${target} WHERE player_id = ? AND ${stillGuest}`)
-        .bind(linuxdoId, guestId, guestId)),
-    ...mergeChallengeStatements(db, { linuxdoId }, guestId),
-    db.prepare('DELETE FROM players WHERE id = ? AND linuxdo_id IS NULL').bind(guestId),
+async function upsertLinuxdoPlayer(db, user, mergeGuestId, source) {
+  const linuxdoId=Number(user.id),guestId=mergeGuestId||null,claimId=crypto.randomUUID();
+  const fields=[String(user.username).slice(0,40),avatarUrl(user.avatar_template),Number(user.trust_level)||0];
+  const tokenHash=await sha256(randomToken()),now=Date.now();
+  const target='(SELECT id FROM players WHERE linuxdo_id = ?)';
+  const permitted='EXISTS(SELECT 1 FROM oauth_operation_claims WHERE claim_id=?)';
+  const stillGuest='EXISTS(SELECT 1 FROM players g WHERE g.id=? AND g.linuxdo_id IS NULL AND NOT EXISTS(SELECT 1 FROM password_credentials c WHERE c.player_id=g.id)) AND '+permitted;
+  // Admission and every mutation are in one transaction. Rechecking the source
+  // token after moving it would break the rest of the batch, so keep a short-lived
+  // claim until all transfers have finished. Failed batches roll the claim back.
+  const results=await db.batch([
+    db.prepare(`INSERT INTO oauth_operation_claims(claim_id) SELECT ? WHERE ? IS NULL OR EXISTS(
+      SELECT 1 FROM tokens t JOIN players p ON p.id=t.player_id WHERE t.token_hash=?
+      AND t.auth_version=p.auth_version AND (t.expires_at IS NULL OR t.expires_at>?)
+      AND (p.linuxdo_id IS NULL OR p.linuxdo_id=?) AND (
+        (p.id=? AND p.auth_version=? AND NOT EXISTS(SELECT 1 FROM password_credentials c WHERE c.player_id=p.id)) OR
+        (p.id!=? AND p.linuxdo_id=? AND NOT EXISTS(SELECT 1 FROM players original WHERE original.id=?))))`)
+      .bind(claimId,source.source_token_hash,source.source_token_hash,now,linuxdoId,source.source_player_id,source.auth_version,source.source_player_id,linuxdoId,source.source_player_id),
+    db.prepare(`UPDATE players SET linuxdo_id = ?, name_key = ?, tag = NULL WHERE id=? AND linuxdo_id IS NULL
+      AND NOT EXISTS(SELECT 1 FROM password_credentials c WHERE c.player_id=players.id)
+      AND NOT EXISTS(SELECT 1 FROM players WHERE linuxdo_id=?) AND ${permitted}`)
+      .bind(linuxdoId,`ld:${linuxdoId}`,guestId,linuxdoId,claimId),
+    db.prepare(`INSERT INTO players(id,name,name_key,token_hash,avatar,trust_level,linuxdo_id,created_at)
+      SELECT ?,?,?,?,?,?,?,? WHERE NOT EXISTS(SELECT 1 FROM players WHERE linuxdo_id=?) AND ${permitted}`)
+      .bind(crypto.randomUUID(),fields[0],`ld:${linuxdoId}`,tokenHash,fields[1],fields[2],linuxdoId,now,linuxdoId,claimId),
+    db.prepare(`UPDATE players SET name=CASE WHEN EXISTS(SELECT 1 FROM password_credentials c WHERE c.player_id=players.id) THEN name ELSE ? END,
+      avatar=?,trust_level=?,display_name_source=CASE WHEN EXISTS(SELECT 1 FROM password_credentials c WHERE c.player_id=players.id) THEN 'local' ELSE 'linuxdo' END,
+      name_policy_status='unreviewed' WHERE linuxdo_id=? AND ${permitted}`).bind(...fields,linuxdoId,claimId),
+    db.prepare(`UPDATE players SET (best_score,best_level,best_at)=(SELECT best_score,best_level,best_at FROM players WHERE id=?)
+      WHERE linuxdo_id=? AND EXISTS(SELECT 1 FROM players g WHERE g.id=? AND
+        (g.best_score>players.best_score OR (g.best_score=players.best_score AND g.best_score>0 AND g.best_at<players.best_at))) AND ${stillGuest}`)
+      .bind(guestId,linuxdoId,guestId,guestId,claimId),
+    db.prepare(`UPDATE players SET games=games+(SELECT games FROM players WHERE id=?) WHERE linuxdo_id=? AND ${stillGuest}`).bind(guestId,linuxdoId,guestId,claimId),
+    ...['scores','score_receipts','tokens','sessions'].map(table=>db.prepare(`UPDATE ${table} SET player_id=${target} WHERE player_id=? AND ${stillGuest}`).bind(linuxdoId,guestId,guestId,claimId)),
+    ...mergeChallengeStatements(db,{linuxdoId,claimId},guestId),
+    db.prepare(`DELETE FROM players WHERE id=? AND linuxdo_id IS NULL AND NOT EXISTS(SELECT 1 FROM password_credentials c WHERE c.player_id=players.id) AND ${permitted}`).bind(guestId,claimId),
+    db.prepare(`UPDATE tokens SET auth_method='linuxdo',auth_version=(SELECT auth_version FROM players WHERE id=tokens.player_id),expires_at=COALESCE(expires_at,?) WHERE player_id=${target} AND auth_method IN ('guest','legacy') AND ${permitted}`).bind(now+30*DAY,linuxdoId,claimId),
+    db.prepare('DELETE FROM oauth_operation_claims WHERE claim_id=?').bind(claimId),
   ]);
-  return (await db.prepare('SELECT id FROM players WHERE linuxdo_id = ?').bind(linuxdoId).first()).id;
+  if(results[0]?.meta?.changes!==1)throw new ApiError(409,'identity_changed','账号已变化，请重新登录');
+  return (await db.prepare('SELECT id FROM players WHERE linuxdo_id=?').bind(linuxdoId).first()).id;
 }
 
 async function exchangeLoginCode(request, env) {
@@ -333,13 +369,15 @@ async function exchangeLoginCode(request, env) {
   if (!row || Date.now() - row.created_at > LOGIN_CODE_TTL_MS) {
     throw new ApiError(400, 'bad_login_code', '登录已过期，请重新登录');
   }
-  const player = await env.DB.prepare('SELECT * FROM players WHERE id = ?').bind(row.player_id).first();
-  if (!player) throw new ApiError(400, 'bad_login_code', '登录已过期，请重新登录');
-  const token = randomToken();
-  await env.DB.prepare('INSERT INTO tokens (token_hash, player_id, created_at) VALUES (?, ?, ?)')
-    .bind(await sha256(token), player.id, Date.now())
-    .run();
-  return json({ player: publicPlayer(player, env), token });
+  const token = randomToken(), tokenHash=await sha256(token), now=Date.now();
+  await env.DB.prepare(`INSERT INTO tokens(token_hash,player_id,created_at,auth_method,auth_version,authenticated_at,expires_at)
+    SELECT ?,id,?,'linuxdo',auth_version,?,? FROM players WHERE id=? AND auth_version=?
+    AND (? IS NULL OR EXISTS(SELECT 1 FROM tokens old WHERE old.token_hash=? AND old.player_id=players.id AND old.auth_version=players.auth_version AND (old.expires_at IS NULL OR old.expires_at>?)))`)
+    .bind(tokenHash,now,now,now+30*DAY,row.player_id,row.auth_version??0,row.source_token_hash,row.source_token_hash,now).run();
+  const player=await env.DB.prepare(AUTH_QUERY).bind(tokenHash).first();
+  if(!sessionCurrent(player))throw new ApiError(400,'bad_login_code','登录已过期，请重新登录');
+  const hasRecovery=await env.DB.prepare('SELECT 1 FROM recovery_codes WHERE player_id=?').bind(player.id).first();
+  return json({player:publicPlayer(player,env),token,...accountState(player,hasRecovery,{passwordEnabled:Boolean(env.PASSWORD_AUTH?.available),linuxdoEnabled:true,namingEnabled:Boolean(NAME_POLICY_VERSION)})});
 }
 
 // ---------- game ----------
@@ -485,7 +523,7 @@ function publicPlayer(p, env = {}) {
   return {
     id: p.id,
     name: displayName(p, { blockedWords: env.BLOCKED_WORDS }),
-    tag: linuxdo ? null : p.tag ?? null,
+    tag: p.tag ?? null,
     linuxdo,
     avatar: linuxdo ? p.avatar ?? null : null,
     trustLevel: linuxdo ? p.trust_level ?? 0 : null,
@@ -498,11 +536,11 @@ async function authenticate(request, env) {
   if (!token) throw new ApiError(401, 'unauthorized', '请先起个名字或登录');
   const tokenHash = await sha256(token);
   const player = await env.DB.prepare(
-    'SELECT p.* FROM tokens t JOIN players p ON p.id = t.player_id WHERE t.token_hash = ?',
+    AUTH_QUERY,
   )
     .bind(tokenHash)
     .first();
-  if (!player) throw new ApiError(401, 'unauthorized', '登录已失效，请重新登录');
+  if (!sessionCurrent(player)) throw new ApiError(401, 'unauthorized', '登录已失效，请重新登录');
   return { ...player, tokenHash };
 }
 
@@ -618,6 +656,6 @@ function corsHeaders(request, env) {
 function json(body, status = 200, headers = {}) {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { 'Content-Type': 'application/json; charset=utf-8', ...headers },
+    headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control':'no-store', ...headers },
   });
 }

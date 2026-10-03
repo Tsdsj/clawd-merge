@@ -28,6 +28,11 @@ const apiBase = resolveApiBase();
 // Keep deployed players signed in. Local identities are API-specific and never
 // adopt the old unscoped key, whose original API cannot be established safely.
 const PLAYER_KEY = localDevelopment ? `clawd-merge:player:dev:${apiBase}` : 'clawd-merge:player';
+const OAUTH_SOURCE_KEY=PLAYER_KEY+':oauth-source';
+async function oauthSource(snapshot){
+  const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(snapshot.token||''));
+  return JSON.stringify({id:snapshot.id||null,hash:[...new Uint8Array(digest)].map(n=>n.toString(16).padStart(2,'0')).join('')});
+}
 
 export class LeaderboardError extends Error {
   constructor(code, message, status = 0) {
@@ -132,25 +137,66 @@ export const leaderboard = {
   save(player, token = this.player?.token) {
     identityRevision++;
     this.player = { ...player, token };
+    this.signedOut=false;this.logoutStorageFailed=false;
     this.memoryOnly=!writePreference(PLAYER_KEY, JSON.stringify(this.player));
     observedStorage=readPreference(PLAYER_KEY);
     return this.player;
   },
 
   cancelIdentityRequests() { identityRevision++; },
+  beginAccountRequest() { return captureIdentity(this,true); },
+  accountRequestCurrent(snapshot) { return identityMatches(this,snapshot); },
+  endAccountRequest(snapshot) { finishMutation(snapshot); },
+  accountRequest(path,options={}) {
+    if(!this.enabled)throw new LeaderboardError('offline','账号服务尚未配置');
+    if(!path.startsWith('/api/auth/')&&!path.startsWith('/api/account/')&&path!=='/api/me')throw new Error('invalid_account_path');
+    return request(path,{timeoutMs:8000,...options});
+  },
+  async applyAuthResult(data,snapshot,{expectedPlayerId=null,beforeApply=null}={}) {
+    if(!data||data.kind!=='authenticated'||typeof data.player?.id!=='string'||typeof data.player.name!=='string'||
+      typeof data.token!=='string'||data.token.length<32||!['password','linked','linuxdo'].includes(data.account?.kind)||
+      !Number.isSafeInteger(data.account.authVersion)||data.account.authVersion<0||!Number.isSafeInteger(data.expiresAt))
+      throw new LeaderboardError('bad_response','服务器返回的账号信息不完整，请检查本次结果');
+    if(!identityMatches(this,snapshot)||(expectedPlayerId&&data.player.id!==expectedPlayerId))throw identityChanged();
+    if(beforeApply)await beforeApply(data,snapshot);
+    if(!identityMatches(this,snapshot))throw identityChanged();
+    const round=this.round,samePlayer=data.player.id===snapshot.id;
+    this.save({...data.player,account:data.account,capabilities:data.capabilities,sessionExpiresAt:data.expiresAt},data.token);
+    if(!samePlayer){this.round=null;this.session=null;return this.player;}
+    if(round&&round.player?.token===snapshot.token){
+      round.player=this.player;
+      if(round.sessionId){
+        round.status='pending';
+        round.promise=request(`/api/session/check?sessionId=${encodeURIComponent(round.sessionId)}`,{token:data.token,timeoutMs:8000})
+          .then(check=>{if(this.round===round&&this.player?.token===data.token){round.status=['valid','used'].includes(check.status)?'online':'offline';if(round.status==='offline')round.errorCode='session_expired';}return round.sessionId;})
+          .catch(()=>{if(this.round===round&&this.player?.token===data.token){round.status='pending';round.errorCode='verification_pending';}return round.sessionId;});
+        this.session=round.promise;
+        await round.promise;
+      }
+    }
+    return this.player;
+  },
+  async retryAccountStorage() {
+    if(!this.player)return false;
+    captureIdentity(this);
+    this.save(this.player,this.player.token);return !this.memoryOnly;
+  },
+
   get renaming() { return Boolean(pendingRename && pendingRename.id===this.player?.id && pendingRename.token===this.player?.token); },
 
   forget() {
     identityRevision++;
     const token=this.player?.token;
     this.player = null;
+    this.signedOut=true;this.logoutStorageFailed=false;
     this.memoryOnly=false;
     this.round = null;
     this.session = null;
     try {
       const stored=loadPlayer();
-      if(!stored || stored.token===token)getStorage()?.removeItem(PLAYER_KEY);
-    } catch { /* In-memory logout still takes effect. */ }
+      if(!stored || stored.token===token){const storage=getStorage();if(storage)storage.removeItem(PLAYER_KEY);else if(observedStorage)this.logoutStorageFailed=true;}
+    } catch { this.logoutStorageFailed=true; }
+    this.memoryOnly=this.logoutStorageFailed;
     observedStorage=readPreference(PLAYER_KEY);
   },
 
@@ -171,7 +217,7 @@ export const leaderboard = {
     try {
       const { player } = await request('/api/rename', { method: 'POST', token: snapshot.token, body: { name }, timeoutMs:8000 });
       if(!identityMatches(this,snapshot)||player?.id!==snapshot.id)throw identityChanged();
-      return this.save(player,snapshot.token);
+      return this.save({...this.player,...player},snapshot.token);
     } finally {
       if(pendingRename===snapshot)pendingRename=null;
       finishMutation(snapshot);
@@ -181,7 +227,9 @@ export const leaderboard = {
   async logout() {
     const token = this.player?.token;
     this.forget();
-    if (token) await request('/api/logout', { method: 'POST', token }).catch(() => {});
+    let remoteConfirmed=true;
+    if(token)try{await request('/api/logout',{method:'POST',token,timeoutMs:8000});}catch(err){remoteConfirmed=err.status===401;}
+    return {remoteConfirmed,storageCleared:!this.logoutStorageFailed};
   },
 
   // Leaves for LINUX DO; a signed-in guest's scores get merged into the account.
@@ -198,6 +246,8 @@ export const leaderboard = {
         timeoutMs:8000,
       });
       if(!identityMatches(this,snapshot))throw identityChanged();
+      try{sessionStorage.setItem(OAUTH_SOURCE_KEY,await oauthSource(snapshot));}catch{}
+      if(!identityMatches(this,snapshot))throw identityChanged();
       location.assign(url);
     } finally { finishMutation(snapshot); }
   },
@@ -213,8 +263,11 @@ export const leaderboard = {
     let snapshot;
     try {
       snapshot=captureIdentity(this,true);
+      let source=null;try{source=sessionStorage.getItem(OAUTH_SOURCE_KEY);sessionStorage.removeItem(OAUTH_SOURCE_KEY);}catch{}
+      if(source&&source!==await oauthSource(snapshot))throw identityChanged();
       const { player, token } = await request('/api/auth/exchange', { method: 'POST', body: { code }, timeoutMs:8000 });
       if(!identityMatches(this,snapshot))throw identityChanged();
+      if(snapshot.id&&player?.id!==snapshot.id&&(this.player?.linuxdo||['password','linked','linuxdo'].includes(this.player?.account?.kind)))throw identityChanged();
       return { player: this.save(player, token) };
     } catch (err) {
       return { error: err.message };
@@ -229,7 +282,7 @@ export const leaderboard = {
       snapshot=captureIdentity(this);
       const me = await request('/api/me', { token:snapshot.token,timeoutMs:8000 });
       if (!identityMatches(this,snapshot)) return;
-      this.save(me.player,snapshot.token);
+      this.save({...me.player,...(me.account?{account:me.account}:{}),...(me.capabilities?{capabilities:me.capabilities}:{}),...(me.sessionExpiresAt!==undefined?{sessionExpiresAt:me.sessionExpiresAt}:{})},snapshot.token);
     } catch (err) {
       if (err.status === 401 && snapshot && identityMatches(this,snapshot)) this.onUnauthorized?.();
     }
@@ -264,7 +317,7 @@ export const leaderboard = {
     return { playerId:this.round.player.id, sessionId:this.round.sessionId || null };
   },
 
-  uploadPlayer() { return loadPlayer() || (this.memoryOnly ? this.player : null); },
+  uploadPlayer() { if(this.signedOut)return null;return this.memoryOnly&&readPreference(PLAYER_KEY)===observedStorage?this.player:loadPlayer(); },
 
   captureResultSession() {
     const round=this.round;

@@ -276,3 +276,10 @@ test('UI is notified after the upload lock is released so retry buttons can re-e
   await q.process(entry.key);
   assert.equal(lastBusy, false);
 });
+
+test('A04 a late old-token 401 retries the same result with rotated credentials of the same player',async()=>{
+ let player={id:'player-1',token:'old'},reject,started;const began=new Promise(r=>started=r),sent=[];
+ const q=await setup({getPlayer:()=>player,send:async(body,token)=>{sent.push({body,token});if(token==='old'){started();return new Promise((_,r)=>reject=r);}return receipt;}});
+ const entry=q.enqueue(payload()),pending=q.process(entry.key);await began;player={id:'player-1',token:'new'};q.wakeIdentity();reject(Object.assign(Error('expired'),{status:401,code:'unauthorized'}));await pending;
+ assert.equal(q.get(entry.key).state,'pending');await q.process(entry.key);assert.equal(q.get(entry.key).state,'accepted');assert.deepEqual(sent.map(s=>s.token),['old','new']);assert.deepEqual(sent[0].body,sent[1].body);
+});

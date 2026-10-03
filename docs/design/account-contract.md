@@ -108,14 +108,14 @@
 
 ### 4.1 WriteOperation
 
-注册、设密、改密、恢复和恢复码轮换先准备意图，最终 body 带 `requestId`（UUID）、`retrySecret`（浏览器随机 32 字节 base64url）与 `operationTicket`。同一意图重试时保持不变；密码仅停留内存，不持久化。
+注册、设密、改密、恢复和恢复码轮换先准备意图，最终 body 带 `requestId`（UUIDv7，时间来自 capabilities.serverNow＋本页单调时钟）、`retrySecret`（浏览器随机 32 字节 base64url）与 `operationTicket`。同一意图重试时保持不变；密码仅停留内存，不持久化。
 
 `POST /api/auth/operations` 接收 `{action,requestId,retrySecret,name?,loginHandle?}`。除匿名注册/恢复/OAuth兑换外要求 Bearer；action 白名单为 `register | set_password | change_password | recover_password | rotate_recovery | exchange_login`。返回 `{operationTicket,expiresAt,loginHandle?}`。ticket 使用服务端签名，绑定 action、actor、requestId、retrySecret哈希、到期时间；不接受无准备意图的最终写请求。
 
 注册/首次设密的准备步骤还要审核名字、预留编号并返回完整 loginHandle。客户端先保存完整账号及意图，再发密码；即使最终响应丢失且回执过期，也知道该用哪个账号尝试登录，不必盲目再注册。准备操作消耗注册/设密限流预算，重放同一意图不再次扣该预算。无法持久化意图时要求用户先复制完整账号并明确确认临时状态，不悄悄跳过保护。
 
 - requestId 本身不授予访问回执的权力；服务端核验 retrySecret 的 SHA-256，并对 payload 使用服务端独立密钥的 HMAC，避免数据库内存在可离线试密码的普通请求摘要。
-- 成功响应包含的新 token/一次性恢复码以 AES-256-GCM 加密，使用专用 Worker Secret，随机 nonce 和关联操作 ID；D1 不存可直接登录的明文。密码本身绝不写回执。
+- 成功响应包含的新 token/一次性恢复码以 AES-256-GCM 加密，使用私有文件中的版本化专用密钥，随机 nonce 和关联操作 ID；数据库不存可直接登录的明文。密码本身绝不写回执。
 - 单个事务内写入玩家/凭据/恢复码/token/回执；并发由唯一键＋条件写入认领。重复且一致的请求重放同一结果，不重新创建凭据或轮换恢复码。
 - 升级/改密已经撤销原 token 后，重试可用匹配的操作证明访问自己的回执，不要求已撤销 token 重新成为有效会话；仍验证 actor_scope、结果 auth_version 与结果 token 未撤销。
 - 回执的账号版本或结果资源版本已被后续改密/退出/恢复码轮换废弃，返回 operation_stale。首先核验 ticket 到期时间，过期后的原 requestId 不能被当成全新注册，即使数据库已经清理回执也一样；短期保留不含秘密的 tombstone（建议 24 小时）仅用于友好诊断，不靠永久保留它实现防重放。
@@ -207,3 +207,12 @@ Linux.do-only 用户通过新 OAuth 流程获得 `set_password` 或 `rotate_reco
 运行路线已选择 Node 与 SQLite 自托管。密码参数不因运行平台变化而减弱；A04 仍须完成实际 Node 认证接口、限流、并发和恢复验证。具体实例与测量证据保存在本机私有运行记录中。
 
 A01 可按已有计划执行。A02 可使用本契约做原型；A03 数据准备可继续，但密码入口维持关闭；A04 使用自托管路线并完成验证。以上账号阶段仍遵守用户后续授权范围；基础设施迁移已交付，未包含密码账号实现。
+
+
+## A04 实现细化（2026-10-04）
+
+- 密码认证在 `server/password-auth.mjs` 实现，通过 Node SQLite 短同步事务提交；scrypt 在事务外异步执行，进入事务后重验凭据/身份版本。Legacy Worker/D1 保持旧能力，新密码入口关闭。
+- `GET /api/auth/capabilities` 返回服务能力与 `serverNow`；UUIDv7 的签发时间同时限制准备与回执为十分钟，拒绝未来时间。清理回执后也不能用旧 ID 重新登记。
+- `POST /api/auth/operations/result` 只接受原三件证明，返回 pending 或受保护结果；`POST /api/auth/operations/cancel` 仅取消尚未完成的操作。已提交时返回完成结果，不声称撤销。
+- A04 准备操作不包含 `exchange_login`；新 OAuth 绑定/近期验证仍归 A05。密码入口默认关闭，Compose 密码 overlay 为发布阶段明确启用项。
+- 独立密钥用途为 ticket / receipt / payload / rate。保留 TTL 内旧版本；运维报告预览最多 500 行一批的过期回执脱敏、24 小时 tombstone 清理与 token/grant/reservation 清理，不自动执行。

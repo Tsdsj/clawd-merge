@@ -274,7 +274,11 @@ export class Outbox {
         if (entry.durable && !this.get(key)) return false;
         const status = err.status || 0;
         entry.error = String(err.code || (status ? `http_${status}` : 'offline')).slice(0, 100);
-        if (status === 401) entry.state = 'identity';
+        if (status === 401) {
+          const current=this.getPlayer();
+          if(current?.id===entry.playerId&&current.token!==player.token){entry.state='pending';entry.attempts=0;entry.nextAt=0;}
+          else entry.state='identity';
+        }
         else if (status >= 400 && status < 500 && status !== 429) entry.state = 'rejected';
         else {
           entry.state = 'retry';

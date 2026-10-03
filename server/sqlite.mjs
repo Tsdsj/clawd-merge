@@ -56,6 +56,17 @@ export function openDatabase(path, { migrations = migrationRoot } = {}) {
           return result;
         } catch (error) { raw.exec('ROLLBACK'); throw error; }
       },
+      // No await is allowed while this connection holds a write transaction.
+      // Expensive KDF work happens first; callers recheck versions inside here.
+      transaction(callback) {
+        raw.exec('BEGIN IMMEDIATE');
+        try {
+          const result=callback(raw);
+          if(result && typeof result.then==='function')throw new Error('SQLite transaction callback must be synchronous');
+          raw.exec('COMMIT');
+          return result;
+        } catch(error) { raw.exec('ROLLBACK'); throw error; }
+      },
       close() { raw.close(); },
     };
     return db;

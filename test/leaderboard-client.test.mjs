@@ -355,3 +355,51 @@ test('classic start sends an explicit JSON mode and preserves failure cause sepa
  await leaderboard.startSession();assert.deepEqual(JSON.parse(calls[0].body),{mode:'classic'});assert.equal(leaderboard.sessionFailure,'rate_limited');
  t.mock.method(globalThis,'fetch',async()=>Response.json({entries:[],total:0}));await leaderboard.top();assert.equal(leaderboard.sessionStatus,'offline');assert.equal(leaderboard.sessionFailure,'rate_limited');assert.match(leaderboard.sessionMessage,/开局请求过于频繁/);assert.equal(leaderboard.sessionMessage.includes('连不上排行榜'),false);
 });
+
+function authResult(id='A',token='N'.repeat(43)) {
+ return {kind:'authenticated',player:{id,name:'新账号',tag:'1234',linuxdo:false},account:{kind:'password',loginHandle:'新账号#1234',authMethods:['password'],authVersion:1,hasRecoveryCode:true},capabilities:{canRename:true,canChangePassword:true},token,expiresAt:Date.now()+86400000};
+}
+test('A04 same-player token rotation validates and keeps the original classic ticket',async t=>{
+ const {leaderboard}=await client(t,'https://game.example.test/');leaderboard.save({id:'A',name:'游客'},'O'.repeat(43));leaderboard.restoreSession({playerId:'A',sessionId:'original-game'});const round=leaderboard.round,calls=[];
+ assert.equal(typeof leaderboard.beginAccountRequest,'function');
+ t.mock.method(globalThis,'fetch',async(url,options)=>{calls.push({url,options});return Response.json({status:'valid'});});
+ const snapshot=leaderboard.beginAccountRequest();await leaderboard.applyAuthResult(authResult(),snapshot,{expectedPlayerId:'A'});leaderboard.endAccountRequest(snapshot);
+ assert.equal(leaderboard.round,round);assert.equal(leaderboard.round.sessionId,'original-game');assert.equal(leaderboard.sessionStatus,'online');assert.equal(calls.length,1);assert.ok(calls[0].url.includes('/api/session/check?'));assert.equal(calls[0].options.headers.Authorization,'Bearer '+'N'.repeat(43));
+});
+test('A04 memory-only rotated credentials take precedence over stale persisted tokens',async t=>{
+ const {leaderboard}=await client(t,'https://game.example.test/');leaderboard.save({id:'A',name:'游客'},'O'.repeat(43));assert.equal(typeof leaderboard.beginAccountRequest,'function');
+ const snapshot=leaderboard.beginAccountRequest();t.mock.method(localStorage,'setItem',()=>{throw Error('quota');});await leaderboard.applyAuthResult(authResult(),snapshot,{expectedPlayerId:'A'});leaderboard.endAccountRequest(snapshot);
+ assert.equal(leaderboard.memoryOnly,true);assert.equal(leaderboard.uploadPlayer().token,'N'.repeat(43));
+});
+test('A04 a password login response cannot replace a newer identity',async t=>{
+ const module=await import('../src/account-client.js').catch(()=>null);assert.ok(module?.AccountClient,'A04 account client must exist');const {leaderboard}=await client(t,'https://game.example.test/');
+ const accounts=new module.AccountClient({identity:leaderboard,request:(...args)=>leaderboard.accountRequest(...args),storage:localStorage});let done,started;const began=new Promise(r=>started=r);
+ t.mock.method(globalThis,'fetch',()=>{started();return new Promise(r=>done=r);});const pending=accounts.login('新账号#1234','a sufficiently long password');const rejected=assert.rejects(pending,{code:'identity_changed'});await began;leaderboard.save({id:'B',name:'其他账号'},'B'.repeat(43));done(Response.json(authResult()));await rejected;assert.equal(leaderboard.player.id,'B');
+});
+test('A04 operation intent survives an uncertain response without storing password or recovery code',async t=>{
+ const module=await import('../src/account-client.js').catch(()=>null);assert.ok(module?.AccountClient);const {leaderboard,storage}=await client(t,'https://game.example.test/');
+ const calls=[];t.mock.method(globalThis,'fetch',async(url,options)=>{const body=JSON.parse(options.body||'{}');calls.push({url,body});if(url.endsWith('/api/auth/capabilities'))return Response.json({serverNow:Date.now(),passwordEnabled:true});if(url.endsWith('/api/auth/operations'))return Response.json({operationTicket:'fixture.ticket.signature',expiresAt:Date.now()+600000,loginHandle:'新账号#1234'});throw Error('lost response');});
+ const accounts=new module.AccountClient({identity:leaderboard,request:(...args)=>leaderboard.accountRequest(...args),storage:localStorage});await accounts.prepare('register',{name:'新账号'});const id=accounts.intent.requestId;
+ await assert.rejects(accounts.commit({password:'never persist this long password'}));assert.ok(!JSON.stringify([...storage]).includes('never persist this long password'));
+ const resumed=new module.AccountClient({identity:leaderboard,request:(...args)=>leaderboard.accountRequest(...args),storage:localStorage});assert.equal(resumed.intent.requestId,id);assert.equal(resumed.intent.submitted,true);
+});
+
+test('A04 local logout cannot keep using a credential whose storage removal failed',async t=>{
+ const {leaderboard}=await client(t,'https://game.example.test/');leaderboard.save({id:'A',name:'玩家'},'A'.repeat(43));t.mock.method(localStorage,'removeItem',()=>{throw Error('storage blocked');});
+ await leaderboard.logout();assert.equal(leaderboard.player,null);assert.equal(leaderboard.uploadPlayer(),null);assert.equal(leaderboard.logoutStorageFailed,true);
+});
+
+test('A04: OAuth callback cannot replace a pre-existing formal account',async t=>{
+ const {leaderboard}=await client(t,'https://game.example.test/#login=fixture-code');
+ leaderboard.save({id:'formal',name:'Formal',account:{kind:'password'}},'formal-token');
+ t.mock.method(globalThis,'fetch',async()=>Response.json({player:{id:'other',name:'Other'},token:'other-token'}));
+ const result=await leaderboard.finishLoginRedirect();assert.ok(result.error);assert.equal(leaderboard.player.id,'formal');
+});
+
+test('A04: retrying account storage cannot overwrite another tab before its event arrives',async t=>{
+ const {leaderboard,storage}=await client(t,'https://game.example.test/');
+ leaderboard.save({id:'A',name:'Memory'},'token-A');leaderboard.memoryOnly=true;
+ storage.set(legacyKey,JSON.stringify({id:'B',name:'Other',token:'token-B'}));
+ await assert.rejects(leaderboard.retryAccountStorage(),{code:'identity_changed'});
+ assert.equal(JSON.parse(storage.get(legacyKey)).id,'B');
+});

@@ -648,6 +648,6 @@ test('A03: a policy change masks a guest without deleting identity, sessions or 
  const renamed=await call('POST','/api/rename',{token:p.token,body:{name:'新的名字'}});assert.equal(renamed.status,200);assert.equal(renamed.data.player.name,'新的名字');
 });
 
-test('A03 foundation does not enable password or recovery endpoints',async()=>{
- for(const path of ['/api/auth/password/register','/api/auth/password/login','/api/account/password','/api/auth/password/recover'])assert.equal((await call('POST',path,{body:{}})).status,404,path);
+test('password and recovery endpoints remain gated without the native service',async()=>{
+ for(const path of ['/api/auth/password/register','/api/auth/password/login','/api/account/password','/api/auth/password/recover'])assert.equal((await call('POST',path,{body:{}})).status,503,path);
 });

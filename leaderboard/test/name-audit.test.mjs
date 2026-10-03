@@ -69,7 +69,7 @@ for (const mode of ["missing", "corrupt"])
     mkdirSync(join(dir, "leaderboard/src"), { recursive: true });
     mkdirSync(join(dir, "src"));
     writeFileSync(join(dir, "package.json"), '{"type":"module"}');
-    for (const file of ["index.js", "challenges.js", "name-policy.js"])
+    for (const file of ["index.js", "challenges.js", "name-policy.js", "account-state.js"])
       copyFileSync(
         new URL("leaderboard/src/" + file, root),
         join(dir, "leaderboard/src", file),

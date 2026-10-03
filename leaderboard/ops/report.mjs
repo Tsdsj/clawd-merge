@@ -1,3 +1,4 @@
+import { authMaintenanceRules } from './auth-maintenance.mjs';
 // Read-only aggregate operations. Never select identifiers, names, tokens or IP keys.
 const TABLES = [
   "players",
@@ -13,6 +14,11 @@ const TABLES = [
   "challenge_sessions",
   "challenge_scores",
   "challenge_bests",
+  "password_credentials",
+  "recovery_codes",
+  "reauth_grants",
+  "auth_operations",
+  "login_handle_reservations",
 ];
 const DAY = 86400000;
 const unknown = {
@@ -94,6 +100,7 @@ export async function collectReport(query, options) {
     r.storage.tables[table] = schema.has(table)
       ? await scalar(`rows:${table}`, `SELECT COUNT(*) AS n FROM ${table}`)
       : null;
+  r.authSchemaReady=schema.has('auth_operations')&&(await q('auth-schema',"PRAGMA table_info(auth_operations)")).some(c=>c.name==='operation_ticket');
   const acceptedSources = [];
   if (schema.has("scores")) {
     const w = windowClause("created_at", from, to);
@@ -196,9 +203,9 @@ export async function collectReport(query, options) {
       )
     ).map((v) => v.detail);
   }
-  for (const { table, predicate } of cleanupRules(r))
-    r.cleanup[table] = await scalar(
-      `cleanup:${table}`,
+  for (const { table, predicate, id=table } of cleanupRules(r))
+    r.cleanup[id] = await scalar(
+      `cleanup:${id}`,
       `SELECT COUNT(*) AS n FROM ${table} WHERE ${predicate}`,
     );
   r.warnings.push(
@@ -243,13 +250,13 @@ function cleanupRules(r) {
       predicate: `(used=0 AND started_at < ${Math.max(0, t - DAY - 3 * 3600000)}) OR (used=1 AND EXISTS(SELECT 1 FROM score_receipts r WHERE r.session_id=sessions.id AND r.accepted_at < ${Math.max(0, t - DAY)}))`,
       order: "started_at",
     });
-  return rules;
+  return [...rules,...authMaintenanceRules(r)];
 }
 export function cleanupStatements(report) {
   validate({ ...report.window, source: report.source });
-  return cleanupRules(report).map(({ table, key, predicate, order }) => ({
-    table,
-    sql: `DELETE FROM ${table} WHERE ${key} IN (SELECT ${key} FROM ${table} WHERE ${predicate} ORDER BY ${order} LIMIT 500);`,
+  return cleanupRules(report).map(({ table, key, predicate, order, id=table, update }) => ({
+    table,id,
+    sql: `${update?`UPDATE ${table} SET ${update}`:`DELETE FROM ${table}`} WHERE ${key} IN (SELECT ${key} FROM ${table} WHERE ${predicate} ORDER BY ${order} LIMIT 500);`,
   }));
 }
 export function compareReports(current, baseline) {
@@ -311,8 +318,9 @@ export function renderMarkdown(r, comparison = null) {
   ];
   for (const t of TABLES)
     lines.push(
-      `| ${t} | ${metric(r.storage.tables[t])} | ${comparison ? metric(comparison.tables[t]) : "无基线"} | ${Object.hasOwn(r.cleanup, t) ? r.cleanup[t] : "保留"} |`,
+      `| ${t} | ${metric(r.storage.tables[t])} | ${comparison ? metric(comparison.tables[t]) : "无基线"} | ${t==="auth_operations"&&r.authSchemaReady?"分阶段处理（见下文）":Object.hasOwn(r.cleanup, t) ? r.cleanup[t] : "保留"} |`,
     );
+  if(r.authSchemaReady)lines.push("",`账号回执：本次可脱敏 ${r.cleanup.auth_operations_redact??0} 行；可删除此前已脱敏、且过期超过24小时的记录 ${r.cleanup.auth_operations_purge??0} 行。每条语句最多处理500行；先删旧 tombstone，再脱敏本轮过期回执，后续运行才删除它们。有效 token、密码凭据、恢复码及游戏记录保留。`);
   lines.push(
     "",
     comparison

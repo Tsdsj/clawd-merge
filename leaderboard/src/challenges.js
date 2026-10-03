@@ -345,8 +345,8 @@ export function mergeChallengeStatements(db, to, from) {
   const canonical = typeof to === 'object' && to !== null;
   const target = canonical ? '(SELECT id FROM players WHERE linuxdo_id = ?)' : '?';
   const destination = canonical ? to.linuxdoId : to;
-  const guard = canonical ? ' AND EXISTS (SELECT 1 FROM players WHERE id = ? AND linuxdo_id IS NULL)' : '';
-  const source = canonical ? [from, from] : [from];
+  const guard = (canonical ? ' AND EXISTS (SELECT 1 FROM players g WHERE g.id = ? AND g.linuxdo_id IS NULL AND NOT EXISTS(SELECT 1 FROM password_credentials c WHERE c.player_id=g.id))' : '') + (canonical&&to.claimId?' AND EXISTS(SELECT 1 FROM oauth_operation_claims WHERE claim_id=?)':'');
+  const source = canonical ? [from, from, ...(to.claimId?[to.claimId]:[])] : [from];
   return [
     db
       .prepare(

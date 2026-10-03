@@ -143,7 +143,7 @@ function show(next, open = true) {
   if (next === "recover")
     html = `<p>不使用邮箱或短信。请选择你已有的恢复方式。</p>${form("recover", field("完整登录账号", "account", "text", handle) + field("一次性恢复码", "code", "text", "", "输入之前保存的恢复码。") + submit("验证恢复码"))}<div class="divider">已绑定 Linux.do</div>${btn("通过 Linux.do 验证并恢复", "oauthRecover")}<details><summary>忘记编号，或没有恢复方式？</summary><p class="hint">先检查密码管理器、注册时保存的完整账号。本页不会查询同名账号或列出编号。若已绑定 Linux.do，可用它登录；如果两种恢复方式都没有，无法凭昵称、分数或截图找回。</p></details>${back("login")}`;
   if (next === "reset" || next === "change")
-    html = `${note(next === "reset" ? "身份验证已完成，请设置新密码。" : "修改后，所有旧会话会退出，并生成新的恢复码。")}${form("reset", (next === "change" ? password("old", "当前密码") : "") + password("pass", "新密码", true) + password("confirm", "再次输入新密码", true) + submit("确认并保存新密码"))}${back(next === "change" ? kind : "recover")}`;
+    html = `${note(next === "reset" ? "身份验证已完成，请设置新密码。" : "修改后，所有旧会话会退出，原恢复码仍然有效。")}${form("reset", (next === "change" ? password("old", "当前密码") : "") + password("pass", "新密码", true) + password("confirm", "再次输入新密码", true) + submit("确认并保存新密码"))}${back(next === "change" ? kind : "recover")}`;
   if (next === "bind")
     html = `<p>先验证当前密码，再前往 Linux.do 连接身份。</p>${note("绑定后两种方式都进入当前账号。不会合并另一正式账号的成绩。")}${form("bind", password() + submit("验证并继续"))}${back(kind)}`;
   if (next === "bindConfirm")
@@ -390,6 +390,7 @@ $("content").addEventListener("submit", (e) => {
     if (action === "reserve") {
       kind = originKind === "linuxdo" ? "linked" : "password";
     } else {
+      if (screen === "change") return show(kind);
       flow = "recover";
       if (kind === "guest") kind = "password";
     }

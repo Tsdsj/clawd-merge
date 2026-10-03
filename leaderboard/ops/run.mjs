@@ -138,7 +138,7 @@ async function main() {
         : null,
       comparison = compareReports(report, baseline);
     mkdirSync(dirname(out), { recursive: true });
-    const cleanup = `-- REVIEW ONLY: no deletion was executed by the report command.\n-- Source: ${source.replace(/[\r\n]/g, " ")}\n-- Fixed observation cutoff: ${new Date(asOf).toISOString()}\n-- Back up and verify the target before applying. Each statement deletes at most 500 rows.\n-- Keep all score receipts, scores, challenge ledgers, allowances, bests and tokens.\n\n${cleanupStatements(
+    const cleanup = `-- REVIEW ONLY: no deletion was executed by the report command.\n-- Source: ${source.replace(/[\r\n]/g, " ")}\n-- Fixed observation cutoff: ${new Date(asOf).toISOString()}\n-- Back up and verify the target before applying. Each statement updates or deletes at most 500 rows.\n-- Keep all score receipts, scores, challenge ledgers, allowances, bests, recovery codes and unexpired tokens.\n\n${cleanupStatements(
       report,
     )
       .map((v) => v.sql)
