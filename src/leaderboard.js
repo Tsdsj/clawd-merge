@@ -77,7 +77,7 @@ export const displayName = (p) => (p.tag ? `${p.name}#${p.tag}` : p.name);
 
 export const leaderboard = {
   playerStorageKey: PLAYER_KEY,
-  saveScope: `${localDevelopment ? 'dev' : 'production'}:${apiBase || 'offline'}`,
+  saveScope: !localDevelopment && globalThis.CLAWD_CONFIG?.saveScope || `${localDevelopment ? 'dev' : 'production'}:${apiBase || 'offline'}`,
   enabled: Boolean(apiBase),
   player: loadPlayer(), // { id, name, tag, linuxdo, avatar, trustLevel, token }
   session: null, // Promise<sessionId | null> for the game in progress

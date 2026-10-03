@@ -1,3 +1,5 @@
+> 当前默认部署方式为 [Docker Compose 自托管](../deploy/README.md)。以下 Cloudflare 说明保留为旧运行时兼容参考；真实 Worker/D1/OAuth 配置不写入仓库模板。
+
 # 合成大Clawd 排行榜（Cloudflare Workers + D1）
 
 一个零依赖的 Cloudflare Worker，数据存在 D1（SQLite）。前端仍然托管在 GitHub Pages，跨域调用这个 API。

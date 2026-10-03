@@ -6,9 +6,9 @@
 
 一个「合成大西瓜」式的物理合成小游戏，主角是 Claude 的橙色像素小螃蟹 Clawd。11 级 Clawd 各有各的小配件：爱心、咖啡、墨镜、礼帽、滑板、魔法帽……
 
-整个项目**零依赖、零构建**：原生 ES Module + Canvas，物理引擎是手写的，打开网页就能玩；排行榜是一个同样零依赖的 Cloudflare Worker。
+游戏采用**原生 ES Module + Canvas，无前端构建依赖**；后端使用 Node + SQLite，并以 Docker Compose 管理 API、静态资源、HTTPS 和备份。原 Worker 业务逻辑保留用于兼容与回归。
 
-**▶ 在线试玩：<https://tsdsj.github.io/clawd-merge/>**（手机、电脑都可以）
+**▶ [游戏入口](https://tsdsj.github.io/clawd-merge/)**（旧地址提供前往新站及本机进度搬家入口）
 
 <table>
   <tr>
@@ -107,7 +107,7 @@
 - 请求超时为 8 秒，一次触发最多首次请求加 3 次自动重试（约 2、5、15 秒）；429 遵守服务器等待时间。预算用完后暂停自动重试，刷新不会无限重置预算，可在「待处理成绩」里手动重试。
 - 成绩只用原身份补传；游客绑定或退出前须先完成、或明确移除待处理记录。本机写入失败会提示「尚未保存，请勿刷新」。可以继续玩；若结束记录尚未安全转入队列，新局会明确标记为临时游玩。
 - 每个 API 环境最多保留 50 条持久化待处理记录，不静默淘汰旧结果。移除本机记录需确认，不会删除服务器已经接受的成绩。本地局、缺少原凭证的局、主动降级为本地的局不能补交。
-- 后端是 Cloudflare Workers + D1，自带防刷校验。部署方法见 [`leaderboard/README.md`](leaderboard/README.md)。
+- 自托管后端保留原防刷与回执校验，使用 Node + SQLite。部署方法见 [Docker Compose 运维说明](deploy/README.md)。
 - 没配置排行榜地址（[`src/config.js`](src/config.js)）时，游戏照常单机运行。
 
 ## 本地运行
@@ -146,8 +146,10 @@ M2 已接入服务器日题、正式机会与独立今日榜：游客与 LINUX D
 
 ## 部署
 
-- **游戏**：仓库根目录就是网站。在 GitHub 仓库的 Settings → Pages 里选 `Deploy from a branch` → `main` / `(root)`。
-- **排行榜**：见 [`leaderboard/README.md`](leaderboard/README.md)。
+- **整站**：使用 [Docker Compose 部署说明](deploy/README.md)，静态文件只发布生成的 `public/` 目录。
+- **运行配置**：API 地址与持久化数据集由私有环境生成 `runtime-config.js`；仓库默认单机运行。本地调试仍支持 loopback `?api=`。
+- **旧入口**：Pages 仅部署搬家页面，旧 Worker 只作过渡兼容；旧 D1 不再作为新站数据源。
+- **隐私**：服务器信息、真实域名配置、凭据、数据库导出及巡检报告不进入 Git。
 
 ## 技术实现
 
@@ -195,7 +197,7 @@ M2 已接入服务器日题、正式机会与独立今日榜：游客与 LINUX D
 
 **Merge two identical pixel Clawds into a bigger one, all the way up to the crowned Big Clawd.**
 
-A Suika-style ("合成大西瓜") physics merge game starring Clawd, Claude's orange pixel crab. It has **no dependencies and no build step**: native ES modules, Canvas and a hand-written physics engine. The leaderboard is a Cloudflare Worker, also dependency-free.
+A Suika-style ("合成大西瓜") physics merge game starring Clawd, Claude's orange pixel crab. It has **no dependencies and no build step**: native ES modules, Canvas and a hand-written physics engine. The backend runs on Node and SQLite, with Docker Compose managing the API, web server, certificates and backups. See the deployment guide for configuration and migration.
 
 **▶ Play: <https://tsdsj.github.io/clawd-merge/>** (phone or desktop)
 

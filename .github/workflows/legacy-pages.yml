@@ -1,0 +1,38 @@
+name: Legacy Pages migration entry
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: legacy-pages-migration
+  cancel-in-progress: false
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: '24.21.0'
+      - name: Build only the migration entry
+        env:
+          PUBLIC_ORIGIN: ${{ vars.CLAWD_PUBLIC_ORIGIN }}
+          PRODUCTION_DATASET: ${{ vars.CLAWD_PRODUCTION_DATASET }}
+          MIGRATION_SOURCE_ORIGIN: ${{ vars.CLAWD_LEGACY_ORIGIN }}
+          MIGRATION_SOURCE_PATH: ${{ vars.CLAWD_LEGACY_PATH }}
+        run: |
+          test -n "$PUBLIC_ORIGIN"
+          test -n "$PRODUCTION_DATASET"
+          node scripts/build-site.mjs
+          cp public/migration.html public/index.html
+      - uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa
+        with:
+          path: public
+      - name: Publish compatibility entry
+        id: deployment
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e

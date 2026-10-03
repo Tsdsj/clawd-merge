@@ -1,0 +1,14 @@
+import { cpSync, mkdirSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+const destination=resolve(process.env.SITE_OUTPUT || 'public');
+if(!process.env.PUBLIC_ORIGIN)throw new Error('PUBLIC_ORIGIN is required');
+const configured=new URL(process.env.PUBLIC_ORIGIN);
+if(configured.protocol!=='https:'||configured.username||configured.password||configured.pathname!=='/'||configured.search||configured.hash)throw new Error('PUBLIC_ORIGIN must be a clean HTTPS origin');
+const origin=configured.origin;
+const scope=process.env.PRODUCTION_DATASET || `production:${origin}`;
+mkdirSync(destination,{recursive:true});
+for(const file of ['index.html','migration.html','src','icons','favicon.svg','manifest.webmanifest'])cpSync(file,resolve(destination,file),{recursive:true});
+writeFileSync(resolve(destination,'runtime-config.js'),`globalThis.CLAWD_CONFIG=${JSON.stringify({apiBase:origin,saveScope:scope})};\n`);
+const migration={sourceOrigin:process.env.MIGRATION_SOURCE_ORIGIN || '',sourcePath:process.env.MIGRATION_SOURCE_PATH || '/',targetOrigin:origin,scope};
+writeFileSync(resolve(destination,'migration-config.js'),`globalThis.CLAWD_MIGRATION=${JSON.stringify(migration)};\n`);
+console.log('Static site prepared');

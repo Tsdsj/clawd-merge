@@ -1,0 +1,108 @@
+name: clawd
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: 10m
+    max-file: '3'
+
+services:
+  api:
+    image: clawd-api:${CLAWD_RELEASE:-local}
+    build:
+      context: ${CLAWD_SOURCE_DIR:-..}
+      dockerfile: deploy/Dockerfile
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:-node:24.21.0-bookworm-slim}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    user: '1000:1000'
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 512m
+    cpus: 2
+    pids_limit: 128
+    stop_grace_period: 30s
+    environment:
+      PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set the public HTTPS origin}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?Set allowed browser origins}
+      TRUST_PROXY: '1'
+      DB_FILE: /data/clawd.sqlite
+      LINUXDO_CLIENT_ID: ${LINUXDO_CLIENT_ID:?Set the existing client ID}
+      LINUXDO_CLIENT_SECRET_FILE: /run/secrets/linuxdo_client_secret
+      LINUXDO_MIN_TRUST_LEVEL: '0'
+    secrets: [linuxdo_client_secret]
+    volumes:
+      - ${CLAWD_STATE_DIR:-./state}/data:/data
+    tmpfs: ['/tmp:size=32m,mode=1777']
+    expose: ['3000']
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:3000/api/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    logging: *logging
+
+  web:
+    image: ${NGINX_IMAGE:-nginx:stable-alpine}
+    restart: unless-stopped
+    init: true
+    read_only: true
+    security_opt: [no-new-privileges:true]
+    mem_limit: 128m
+    pids_limit: 128
+    ports: ['80:80', '443:443']
+    entrypoint: [/bin/sh, /opt/clawd/nginx-start.sh]
+    environment:
+      PUBLIC_HOST: ${PUBLIC_HOST:?Set the public hostname}
+    volumes:
+      - ${CLAWD_DEPLOY_DIR:-.}/nginx.conf:/opt/clawd/nginx.conf.template:ro
+      - ${CLAWD_DEPLOY_DIR:-.}/nginx-start.sh:/opt/clawd/nginx-start.sh:ro
+      - ${CLAWD_SITE_DIR:-../public}:/usr/share/nginx/html:ro
+      - ${CLAWD_STATE_DIR:-./state}/acme:/var/www/certbot:ro
+      - ${CLAWD_STATE_DIR:-./state}/certificates:/etc/letsencrypt:ro
+    tmpfs: [/var/cache/nginx:size=32m, /var/run:size=4m]
+    logging: *logging
+
+  certbot:
+    image: ${CERTBOT_IMAGE:-certbot/certbot:latest}
+    restart: unless-stopped
+    init: true
+    mem_limit: 256m
+    pids_limit: 64
+    entrypoint: [/bin/sh, -c]
+    command:
+      - "trap 'exit 0' TERM INT; while :; do certbot renew --webroot -w /var/www/certbot --quiet; sleep 12h & wait $$!; done"
+    volumes:
+      - ${CLAWD_STATE_DIR:-./state}/acme:/var/www/certbot
+      - ${CLAWD_STATE_DIR:-./state}/certificates:/etc/letsencrypt
+    tmpfs: [/var/lib/letsencrypt:size=16m, /var/log/letsencrypt:size=16m]
+    logging: *logging
+
+  backup:
+    image: clawd-api:${CLAWD_RELEASE:-local}
+    restart: unless-stopped
+    init: true
+    user: '1000:1000'
+    read_only: true
+    network_mode: none
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    mem_limit: 256m
+    pids_limit: 64
+    entrypoint: [/bin/sh, -c]
+    command:
+      - "trap 'exit 0' TERM INT; while :; do node server/backup.mjs; sleep 6h & wait $$!; done"
+    volumes:
+      - ${CLAWD_STATE_DIR:-./state}/data:/data:ro
+      - ${CLAWD_STATE_DIR:-./state}/backups:/backups
+    tmpfs: ['/tmp:size=16m,mode=1777']
+    depends_on:
+      api:
+        condition: service_healthy
+    logging: *logging
+
+secrets:
+  linuxdo_client_secret:
+    file: ${CLAWD_SECRET_DIR:-./secrets}/linuxdo_client_secret

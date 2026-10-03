@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { LEADERBOARD_API } from '../src/config.js';
+globalThis.CLAWD_CONFIG = { apiBase: 'https://api.example.test' };
+const { LEADERBOARD_API } = await import('../src/config.js');
 
 const legacyKey = 'clawd-merge:player';
 const oldPlayer = { id: 'test-player', name: 'Test', token: 'isolated-test-token' };

@@ -1,0 +1,12 @@
+name = "clawd-account-a00-probe"
+main = "worker.mjs"
+compatibility_date = "2026-09-01"
+# Explicit for older local Wrangler versions; isolated from production config.
+compatibility_flags = ["nodejs_compat"]
+workers_dev = false
+send_metrics = false
+
+[dev]
+ip = "127.0.0.1"
+port = 8796
+inspector_port = 9296

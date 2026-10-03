@@ -4,3 +4,13 @@ node_modules/
 .playwright-mcp/
 .wrangler/
 .dev.vars
+.env
+.env.*
+deploy/state/
+deploy/secrets/
+public/
+deploy/runtime/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+!deploy/.env.example

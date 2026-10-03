@@ -1,0 +1,15 @@
+.git
+.claude
+.wrangler
+node_modules
+.env
+.env.*
+**/.env
+**/.dev.vars
+**/state
+**/secrets
+**/*.sqlite
+**/*.sql.backup
+docs
+test
+scripts
