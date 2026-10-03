@@ -202,13 +202,13 @@ B02 的额外并发场景已在A01补验；以上表格保留规划时的原始�
 
 ## 7. 开发顺序与交付条件
 
-沿用项目 `docs/` 规划载体，使用 A00—A07 引用本交付包；不重建 .tl、.ark 或另一套状态系统。A00与基础迁移已交付；A01修复及工程验收完成、尚未上线；A02—A07账号阶段未实施。
+沿用项目 `docs/` 规划载体，使用 A00—A07 引用本交付包；不重建 .tl、.ark 或另一套状态系统。A00与基础迁移已交付；A01修复及工程验收完成、尚未上线；A02原型已交付、待设计确认；A03—A07账号阶段未实施。
 
 | 顺序 | 交付 | 主要路径 | 依赖 / 完成条件 |
 | --- | --- | --- | --- |
 | **A00 规则与技术可行性** | 第 10 节推荐规则已收敛；接口/身份/KDF/词库调查完成，用户已选择自托管迁移 | 本文；`docs/design/account-contract.md`、私有部署验证记录（不入库） | 账号规则与算法候选已验证；用户已选全站自托管，迁移实施另见通用部署文档 |
 | **A01 既有缺陷修复** | 已完成B01—B04及相关身份失效保护，未发布生产 | `leaderboard/src/index.js`、`src/leaderboard.js`；API/client/D1/SQLite测试 | 201项回归、34项生产SQLite API回归、真实D1与浏览器验证通过，见[A01记录](verification/a01-account-correctness.md) |
-| **A02 账号原型** | 第 5 节流程、可点击原型、高保真与状态规范 | `docs/prototypes/account/` | A00 产品规则稳定；沿用现有样式；用户确认设计后再接正式 UI |
+| **A02 账号原型** | 已交付可点击原型、线框模式、关键视觉稿与状态规范，待设计确认 | [原型说明](prototypes/account/README.md) | 30场景与5类视口检查；沿用现有样式；用户确认设计后再接正式 UI |
 | **A03 名称策略与数据迁移** | 共用命名模块、词库版本、误拦样本、增量 schema | 建议新增 `leaderboard/src/name-policy.js`、`leaderboard/data/`；`migrations/0005_*` | A00；旧迁移→新迁移实测，原 ID/token/经典与每日数据不丢；已命中存量名仍能登录 |
 | **A04 密码账号完整切片** | 注册/游客升级、登录、改密/恢复，服务端与表单接通 | 建议 `leaderboard/src/password-auth.js`、`src/account-ui.js`；`index.html`、`leaderboard.js` | A01—A03；哈希/限流/持久化失败/响应丢失/多设备路径有证据；先小范围抽离账号逻辑，不整体重写 main.js |
 | **A05 双登录方式与游戏接线** | 显式绑定、冲突处理、旧游客合并、身份能力统一 | Worker OAuth、`challenges.js`；`main.js`、`player-identity.js`、`challenge-ui.js`、保存/补传边界 | A04；两种方式返回同一 ID；账户切换不串局；绑定/重试不重置正式机会；旧客户端不能误合并正式账号 |

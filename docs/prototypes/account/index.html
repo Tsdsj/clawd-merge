@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>A02 · 账号原型</title>
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="prototype.css" />
+  </head>
+  <body>
+    <header class="review">
+      <span class="eyebrow">CLAWD / A02 / DESIGN REVIEW</span>
+      <h1>把成绩留在自己的账号里</h1>
+      <p>
+        可点击设计稿 · 全部为虚构数据，不连接 API，不保存密码 ·
+        关闭面板后切换审查场景
+      </p>
+      <div class="controls">
+        <label>审查场景<select id="scene"></select></label
+        ><label
+          >当前对局<select id="game">
+            <option value="idle">未开始</option>
+            <option value="classic">经典在线局进行中</option>
+            <option value="daily">每日正式局未完成</option>
+            <option value="unknown">开局结果未知</option>
+            <option value="pending">成绩等待上传</option>
+          </select></label
+        ><label><input type="checkbox" id="wire" />线框结构</label
+        ><label><input type="checkbox" id="paused" />原本已暂停</label>
+      </div>
+      <details>
+        <summary>查看流程与边界</summary>
+        <p>
+          加入排行榜 → 登录 / 注册 / Linux.do / 游客 →
+          账号管理。注册与首次设密：取完整账号 → 设密码 →
+          保存账号和恢复码。恢复：恢复码或新一轮 Linux.do 验证 → 新密码 →
+          新恢复码。绑定：验证当前方式 → 确认 → 结果。切换身份前处理原局。
+        </p>
+      </details>
+    </header>
+    <main class="demo">
+      <div class="brand">
+        <h2>合成大Clawd</h2>
+        <span class="pill">经典</span>
+      </div>
+      <div class="score">
+        <span>本局分数<strong>1,282</strong></span
+        ><button id="open">加入排行榜</button>
+      </div>
+      <div class="board">
+        <div class="danger-line"></div>
+        <canvas id="crab" aria-label="现有像素 Clawd 插图"></canvas>
+        <p>同样的 Clawd，碰在一起就长大。</p>
+      </div>
+      <p id="game-status" role="status">演示棋盘未暂停</p>
+      <p class="muted">这里只演示账号流程，棋盘不会实际运行。</p>
+    </main>
+    <dialog id="panel" aria-labelledby="title">
+      <header class="panel-head">
+        <div>
+          <span class="eyebrow" id="step">你的 Clawd 身份</span>
+          <h2 id="title"></h2>
+        </div>
+        <button id="close" class="icon" aria-label="关闭账号面板">×</button>
+      </header>
+      <div id="content" class="content"></div>
+      <footer>
+        <span>设计演示</span><span id="foot">不会创建真实账号</span>
+      </footer>
+    </dialog>
+    <script type="module" src="prototype.js"></script>
+  </body>
+</html>
