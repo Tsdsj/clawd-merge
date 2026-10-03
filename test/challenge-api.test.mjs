@@ -63,3 +63,11 @@ test('identity changes and mismatched definitions never become playable credenti
   p = { id: 'p2', token: 't2' };
   assert.equal((await api.check(ticket)).status, 'identity');
 });
+
+test('same-player token rotation discards a late challenge profile from the previous session',async()=>{
+ const {ChallengeApi}=await import('../src/challenge-api.js');
+ let player={id:'p1',token:'old'},resolve;
+ const api=new ChallengeApi({getPlayer:()=>player,request:()=>new Promise(r=>resolve=r)});
+ const pending=api.today();player={id:'p1',token:'new'};resolve({});
+ await assert.rejects(pending,{code:'identity_changed'});assert.equal(api.data,null);
+});

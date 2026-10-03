@@ -301,3 +301,18 @@ test('A04 auth maintenance is preview-only, redacts expired receipts and retains
   const serialized=JSON.stringify(report);for(const value of ['private-actor','private-ciphertext','private-handle'])assert.ok(!serialized.includes(value));
  }finally{db.raw.close();}
 });
+
+test('A05 maintenance previews then removes expired encrypted OAuth flows and redacts browser binding metadata',async()=>{
+ const db=createD1();try{
+  for(const [id,expires]of [['expired-oauth',asOf-1],['live-oauth',asOf+600000]]){
+   db.raw.prepare("INSERT INTO auth_operations(request_id,actor_scope,action,retry_secret_hash,created_at,expires_at,oauth_action,oauth_purpose,client_nonce_hash,recovery_method) VALUES(?,'fixture-scope','exchange_login',?,1,?,'reauth','recover_password',?,'linuxdo')").run(id,'b'.repeat(64),expires,'private-client-hash');
+   db.raw.prepare('INSERT INTO oauth_account_flows(state_hash,operation_id,return_to,expires_at,start_cipher,start_nonce) VALUES(?,?,?,?,?,?)').run((id.startsWith('expired')?'a':'b').repeat(64),id,'https://private.example.invalid/',expires,'private-encrypted-context','private-nonce');
+  }
+  const r=await collectReport(query(db),options);assert.equal(r.cleanup.oauth_account_flows,1);assert.equal(db.raw.prepare('SELECT count(*) n FROM oauth_account_flows').get().n,2);
+  const publicReport=JSON.stringify(r);for(const value of ['private-client-hash','private-encrypted-context','private.example.invalid'])assert.ok(!publicReport.includes(value));
+  for(const s of cleanupStatements(r))db.raw.exec(s.sql);
+  assert.equal(db.raw.prepare('SELECT count(*) n FROM oauth_account_flows').get().n,1);
+  const expired=db.raw.prepare("SELECT client_nonce_hash,oauth_action,oauth_purpose,recovery_method FROM auth_operations WHERE request_id='expired-oauth'").get();assert.ok(Object.values(expired).every(v=>v===null));
+  assert.equal(db.raw.prepare("SELECT client_nonce_hash FROM auth_operations WHERE request_id='live-oauth'").get().client_nonce_hash,'private-client-hash');
+ }finally{db.raw.close();}
+});

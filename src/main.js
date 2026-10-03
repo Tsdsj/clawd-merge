@@ -4,6 +4,7 @@ import { sfx } from './audio.js';
 import { leaderboard, displayName } from './leaderboard.js';
 import { createGuide } from './onboarding.js';
 import { AccountClient } from './account-client.js';
+import { OAuthClient } from './oauth-client.js';
 import { createAccountUI } from './account-ui.js';
 import { PauseState } from './pause.js';
 import { createSaveFlow } from './save-flow.js';
@@ -34,7 +35,8 @@ const pauses = new PauseState(syncPause);
 let saves;
 let daily, sharing;
 let outbox, uploads;
-let accountClient, accountPanel, externalIdentityChanged=false;
+let accountClient, oauthClient, accountPanel, externalIdentityChanged=false;
+let oauthReturnContext=null;
 
 function updateGuide() {
   const step = guide.step;
@@ -287,9 +289,12 @@ function showLocalResult() {
 function accountGuard(action,{confirmed=false}={}) {
   if(externalIdentityChanged)return {message:'账号已在其他页面变化，请刷新后检查原存档。'};
   const entries=outbox?.list()||[],p=leaderboard.player;
+  if(!p&&(daily?.boundPlayerId||saves?.boundPlayerId)&&['join','mutation'].includes(action))return {message:'本机仍有原账号的在线局。请先登录原账号，或明确将原局转为本地／练习后再创建新身份。'};
   if(entries.some(e=>!e.durable&&!e.journaled&&!['accepted','removed'].includes(e.state))||daily&&!daily.canNavigateForAuth())
     return {message:'有进度或成绩尚未安全保存，请先重试保存或处理记录。'};
-  const sameIdentity=['mutation','login'].includes(action)||(action==='navigate'&&p?.linuxdo);
+  const navigating=['navigate','oauth-same','oauth-switch'].includes(action);
+  if(navigating&&game.drops>0&&!game.over&&!saves?.blocked&&(saves?.temporary||!saves.flush()))return {message:'当前经典局未能安全保存，暂时不能离开本页授权。请先保存或结束本局。'};
+  const sameIdentity=['mutation','login','oauth-same'].includes(action)||(action==='navigate'&&p?.linuxdo);
   if(sameIdentity){
     if(leaderboard.sessionStatus==='pending'||entries.some(e=>e.state==='uploading')||daily?.credentialRotationBlocked())
       return {message:'正在核对开局或上传成绩，请等待完成后再更新登录状态。'};
@@ -300,18 +305,38 @@ function accountGuard(action,{confirmed=false}={}) {
   if(action==='navigate'&&p?.account?.kind==='password')return {message:'请先退出当前账号，再用 Linux.do 登录。账号绑定会在后续阶段开放。'};
   const messages=[];
   if(p&&(!p.account||p.account.kind==='guest')&&!p.linuxdo&&action==='logout')messages.push('游客身份没有密码。退出后可能无法找回该身份与历史，请确认已处理成绩。');
-  if(['logout','navigate'].includes(action)&&game.drops>0&&!game.over&&leaderboard.sessionStatus==='online')messages.push('当前经典在线局将转为本地继续，不再上传本局排名。');
+  if(['logout','navigate','oauth-switch'].includes(action)&&game.drops>0&&!game.over&&leaderboard.sessionStatus==='online')messages.push('当前经典在线局将转为本地继续，不再上传本局排名。');
   if(messages.length&&!confirmed)return {confirm:true,message:messages.join(' ')};
   return null;
 }
+function requireSavedOwner(data,snapshot){if(!snapshot.id||data.player.id!==snapshot.id){const owner=daily?.boundPlayerId||saves?.boundPlayerId;if(owner&&owner!==data.player.id)throw new Error('本机仍有原账号的在线局，请使用原账号登录或先处理原局。');}}
 accountClient=new AccountClient({identity:leaderboard,request:(...args)=>leaderboard.accountRequest(...args),storage:getStorage,
-  beforeApply(data,snapshot){if(snapshot.id&&data.player.id!==snapshot.id)throw new Error('这是另一个账号，请先退出当前账号再登录。');},
+  beforeApply(data,snapshot){requireSavedOwner(data,snapshot);if(snapshot.id&&data.player.id!==snapshot.id)throw new Error('这是另一个账号，请先退出当前账号再登录。');},
 });
-accountPanel=createAccountUI({client:accountClient,identity:leaderboard,
+oauthClient=new OAuthClient({client:accountClient,
+  beforeNavigate(intent){
+    const switching=intent.actorKind==='guest'||(intent.action==='login'&&!intent.samePlayerOnly),check=accountGuard(switching?'oauth-switch':'oauth-same',{confirmed:true});
+    if(check)throw new Error(check.message);
+    if(!switching&&!saves.blocked&&!game.over&&leaderboard.round?.sessionId&&!saves.flush({includeEmpty:true}))throw new Error('未能保存原局凭证，暂时不能离开本页授权。');
+    if(switching&&game.drops>0&&!game.over&&leaderboard.sessionStatus==='online'){
+      const oldRound=leaderboard.round,oldSession=leaderboard.session;leaderboard.round=null;leaderboard.session=null;
+      if(!saves.flush()){leaderboard.round=oldRound;leaderboard.session=oldSession;throw new Error('未能保存本地继续的选择，授权尚未跳转。');}
+    }
+    return {mode:daily?.active?'daily':'classic',roundId:saves?.roundId||null,manualPause:pauses.has('manual')};
+  },
+  beforeApply(data,snapshot){
+    requireSavedOwner(data,snapshot);
+    if(snapshot.id&&data.player.id!==snapshot.id){
+      if(oauthClient.pending?.actorKind!=='guest'||data.mergedFromPlayerId!==snapshot.id)throw new Error('账号不匹配，原身份保持不变。');
+      if(daily?.hasBoundWork(snapshot.id)||uploads?.hasUnresolved(snapshot.id))throw new Error('原游客还有未处理记录，请先核对原对局。');
+    }
+  },
+});
+accountPanel=createAccountUI({client:accountClient,oauth:oauthClient,identity:leaderboard,
   setOpen(open){
     if(open)for(const m of modals)if(m!==accountPanel.element&&!m.classList.contains('hidden'))showModal(m,false);
     showModal(accountPanel.element,open);
-    if(!open){showPlayer();if(saves?.blocked&&!daily?.active)void saves.initialize();}
+    if(!open){showPlayer();if(oauthReturnContext?.mode==='daily'){oauthReturnContext={...oauthReturnContext,mode:'classic'};void daily.open();}else if(saves?.blocked&&!daily?.active)void saves.initialize();}
   },
   onChanged(){showPlayer();if(leaderboard.player){guide.dismiss();updateGuide();if(!daily?.active&&!saves?.blocked&&!game.over&&game.drops===0&&!leaderboard.round)beginRound();}},
   guard:accountGuard,
@@ -337,9 +362,9 @@ $('resume-btn').addEventListener('click',togglePause);
 $('guide-dismiss').addEventListener('click',()=>{guide.dismiss();updateGuide();});
 
 leaderboard.onUnauthorized = () => {
-  leaderboard.forget();
+  leaderboard.sessionExpired=true;
   showPlayer();
-  toast('登录已失效，本局继续本地游玩。可随时重新加入。', 4500);
+  toast('登录已失效，原局和待提交记录保留。请打开账号重新登录。', 5000);
 };
 
 async function submitScore(result) {
@@ -648,6 +673,8 @@ saves = createSaveFlow({
   recoverResult:entry=>{const result=outbox.enqueue(entry,{journaled:true});void outbox.kick();return result;},
   hasUnsafeResults:()=>outbox.list().some(e=>!e.durable&&!['accepted','removed'].includes(e.state)),
   onRestored() {
+    const restorePause=oauthReturnContext?.manualPause&&oauthReturnContext.roundId===saves.roundId;
+    oauthReturnContext=null;if(restorePause)queueMicrotask(()=>pauses.set('manual',true));
     roundVersion++;
     clearTimeout(overTimer);overlay.classList.add('hidden');finalRank.classList.add('hidden');
     scoreEl.textContent=game.score;bestEl.textContent=game.best;
@@ -704,19 +731,26 @@ sharing=createChallengeShareUI({
 });
 $('daily-open').onclick=()=>void daily.open();
 requestAnimationFrame(frame);
-void Promise.all([initAccount(),saves.initialize().then(()=>outbox.start())]).then(()=>sharing.openInvitation());
+// Complete OAuth identity adoption before restoring a saved round or issuing a
+// new empty-board ticket. Returning from same-player reauth never starts a game.
+void (async()=>{pauses.set('auth-init',true);try{await initAccount();await saves.initialize();outbox.start();await sharing.openInvitation();}finally{pauses.set('auth-init',false);}})();
 
 async function initAccount() {
   showPlayer();
   if (!leaderboard.enabled) return;
   // Back from LINUX DO? The page URL carries a one-time login code (or an error).
+  const params=new URLSearchParams(location.hash.slice(1));
+  if(oauthClient.pending&&(params.has('login')||params.has('login_error')||oauthClient.pending.code)||params.get('oauth')==='1'){
+    oauthReturnContext=oauthClient.pending?.returnContext||null;
+    try{const result=params.has('login')||params.has('login_error')?await oauthClient.finishRedirect():await oauthClient.inspect();if(result&&result.kind!=='pending')await accountPanel.receiveOAuth(result);}
+    catch(error){await accountPanel.receiveOAuth(null,error);}
+    showPlayer();return;
+  }
   const result = await leaderboard.finishLoginRedirect();
   showPlayer();
   if (result?.player) {
     guide.dismiss();
     updateGuide();
-    // The callback may finish after the player has already started a local game.
-    if (!saves.blocked && game.drops === 0 && !game.over) beginRound();
     toast(`欢迎, ${displayName(result.player)}!`);
   }
   if (!leaderboard.player) {

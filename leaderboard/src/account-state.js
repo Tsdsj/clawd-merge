@@ -11,7 +11,7 @@ export function accountState(player,hasRecovery,{passwordEnabled=false,linuxdoEn
   const password=Boolean(player.credential_player_id||player.login_handle),linuxdo=player.linuxdo_id!=null;
   return { account:{kind:password?(linuxdo?'linked':'password'):(linuxdo?'linuxdo':'guest'),loginHandle:player.login_handle||null,
     authMethods:[...(password?['password']:[]),...(linuxdo?['linuxdo']:[])],authVersion:player.auth_version||0,hasRecoveryCode:Boolean(hasRecovery)},
-    capabilities:{canRename:namingEnabled&&(!linuxdo||password),canSetPassword:passwordEnabled&&namingEnabled&&!password&&!linuxdo,
-      canChangePassword:passwordEnabled&&password,canBindLinuxdo:linuxdoEnabled&&!linuxdo&&!password,
-      canRotateRecoveryCode:passwordEnabled&&password},sessionExpiresAt:player.session_expires_at??null };
+    capabilities:{canRename:namingEnabled&&(!linuxdo||password),canSetPassword:passwordEnabled&&namingEnabled&&!password&&(!linuxdo||linuxdoEnabled),
+      canChangePassword:passwordEnabled&&password,canBindLinuxdo:linuxdoEnabled&&!linuxdo&&(!password||passwordEnabled),
+      canRotateRecoveryCode:passwordEnabled&&(password||(linuxdo&&linuxdoEnabled)),canRecoverPasswordWithLinuxdo:passwordEnabled&&password&&linuxdo&&linuxdoEnabled},sessionExpiresAt:player.session_expires_at??null };
 }

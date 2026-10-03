@@ -96,7 +96,7 @@ async function route(request, env) {
   }
   switch (key) {
     case 'GET /api/auth/capabilities':
-      return json({passwordEnabled:Boolean(env.PASSWORD_AUTH?.available),registrationEnabled:Boolean(env.PASSWORD_AUTH?.available&&NAME_POLICY_VERSION),linuxdoEnabled:Boolean(env.LINUXDO_CLIENT_ID&&env.LINUXDO_CLIENT_SECRET),oauthAccountActions:false,serverNow:Date.now()},200,{'Cache-Control':'no-store'});
+      return json({passwordEnabled:Boolean(env.PASSWORD_AUTH?.available),registrationEnabled:Boolean(env.PASSWORD_AUTH?.available&&NAME_POLICY_VERSION),linuxdoEnabled:Boolean(env.LINUXDO_CLIENT_ID&&env.LINUXDO_CLIENT_SECRET),oauthAccountActions:Boolean(env.PASSWORD_AUTH?.available&&env.LINUXDO_CLIENT_ID&&env.LINUXDO_CLIENT_SECRET),serverNow:Date.now()},200,{'Cache-Control':'no-store'});
     case 'GET /api/health':
       return json({ ok: true });
     case 'POST /api/register':
@@ -146,11 +146,11 @@ async function register(request, env) {
 
 async function rename(request, env) {
   const player = await authenticate(request, env);
-  if (player.linuxdo_id != null) throw new ApiError(400, 'linuxdo_name', 'LINUX DO 账号的名字跟随 L 站用户名，不能在这里改');
+  if (player.linuxdo_id != null&&!player.credential_player_id) throw new ApiError(400, 'linuxdo_name', 'LINUX DO 账号的名字跟随 L 站用户名，设置本地账号后可修改');
   await rateLimit(env.DB, `rename:${player.id}`, LIMITS.rename, '今天改名次数用完了，明天再来');
   const name = checkGuestName((await readJson(request)).name, env);
   const tag = await insertWithFreeTag(env.DB, name, (tag) => [
-    env.DB.prepare(`UPDATE players SET name = ?, name_key = ?, tag = ?, name_policy_version = ?, name_policy_status = 'allowed' WHERE id = ? AND linuxdo_id IS NULL`).bind(
+    env.DB.prepare(`UPDATE players SET name = ?, name_key = ?, tag = ?, name_policy_version = ?, name_policy_status = 'allowed', display_name_source='local' WHERE id = ? AND (linuxdo_id IS NULL OR EXISTS(SELECT 1 FROM password_credentials c WHERE c.player_id=players.id))`).bind(
       name,
       guestKey(name, tag),
       tag,
@@ -202,7 +202,16 @@ async function me(request, env) {
 
 // ---------- LINUX DO login (OAuth2 authorization code flow) ----------
 
+function accountOAuth(request,env) {
+  if(!env.PASSWORD_AUTH?.available)throw new ApiError(503,'password_auth_disabled','账号服务暂不可用，请稍后再试');
+  return env.PASSWORD_AUTH.handle(request,env,{ApiError,json,publicPlayer:p=>publicPlayer(p,env),checkReturnTo:value=>checkReturnTo(value,env),
+    callbackUrl,redirectWith,fetchAccessToken,fetchLinuxdoUser,avatarUrl,authorizeUrl:env.LINUXDO_AUTHORIZE_URL||LINUXDO.authorize});
+}
+
 async function linuxdoStart(request, env) {
+  const startBody=await readJson(request.clone());
+  if(!startBody||typeof startBody!=='object'||Array.isArray(startBody))throw new ApiError(400,'bad_request','授权请求格式不正确');
+  if(startBody.action!==undefined||startBody.clientNonce!==undefined||startBody.requestId!==undefined)return accountOAuth(request,env);
   if (!env.LINUXDO_CLIENT_ID || !env.LINUXDO_CLIENT_SECRET) {
     throw new ApiError(503, 'login_disabled', 'LINUX DO 登录还没配置好');
   }
@@ -235,6 +244,8 @@ async function linuxdoStart(request, env) {
 async function linuxdoCallback(request, env) {
   const url = new URL(request.url);
   const state = url.searchParams.get('state') || '';
+  const accountFlow=await env.DB.prepare('SELECT return_to FROM oauth_account_flows WHERE state_hash=?').bind(await sha256(state)).first();
+  if(accountFlow){if(!env.PASSWORD_AUTH?.available)return redirectWith(accountFlow.return_to,{oauth:'1',login_error:'账号服务暂不可用，请稍后检查原授权',login_error_code:'password_auth_disabled'});return accountOAuth(request,env);}
   const row = await env.DB.prepare('DELETE FROM oauth_states WHERE state_hash = ? RETURNING *')
     .bind(await sha256(state))
     .first();
@@ -288,6 +299,7 @@ async function linuxdoCallback(request, env) {
 async function fetchAccessToken(code, request, env) {
   const res = await fetch(env.LINUXDO_TOKEN_URL || LINUXDO.token, {
     method: 'POST',
+    signal: AbortSignal.timeout(8000),
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
     body: new URLSearchParams({
       grant_type: 'authorization_code',
@@ -299,7 +311,7 @@ async function fetchAccessToken(code, request, env) {
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok || !data.access_token) {
-    console.error('linuxdo token exchange failed', res.status, data.error);
+    console.error('linuxdo token exchange failed', res.status);
     throw new ApiError(502, 'linuxdo_token', 'LINUX DO 授权失败，请重新登录');
   }
   return data.access_token;
@@ -307,6 +319,7 @@ async function fetchAccessToken(code, request, env) {
 
 async function fetchLinuxdoUser(accessToken, env) {
   const res = await fetch(env.LINUXDO_USER_URL || LINUXDO.user, {
+    signal: AbortSignal.timeout(8000),
     headers: { Authorization: `Bearer ${accessToken}`, Accept: 'application/json' },
   });
   const user = await res.json().catch(() => null);
@@ -361,9 +374,12 @@ async function upsertLinuxdoPlayer(db, user, mergeGuestId, source) {
 }
 
 async function exchangeLoginCode(request, env) {
+  const exchangeBody=await readJson(request.clone());
+  if(!exchangeBody||typeof exchangeBody!=='object'||Array.isArray(exchangeBody))throw new ApiError(400,'bad_request','兑换请求格式不正确');
+  if(exchangeBody.clientNonce!==undefined||exchangeBody.requestId!==undefined)return accountOAuth(request,env);
   await rateLimit(env.DB, `login:${clientIp(request)}`, LIMITS.login, '登录太频繁了，请稍后再试');
   const { code } = await readJson(request);
-  const row = await env.DB.prepare('DELETE FROM login_codes WHERE code_hash = ? RETURNING *')
+  const row = await env.DB.prepare("DELETE FROM login_codes WHERE code_hash = ? AND action='legacy' RETURNING *")
     .bind(await sha256(String(code || '')))
     .first();
   if (!row || Date.now() - row.created_at > LOGIN_CODE_TTL_MS) {

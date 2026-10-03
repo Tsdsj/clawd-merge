@@ -64,14 +64,14 @@ export function createSaveFlow({ game, leaderboard, pauses, showModal, onNew, on
     if(kind==='confirm') $('restore-primary').focus();
   }
 
-  function flush() {
+  function flush({includeEmpty=false}={}) {
     if(state!=='active' || temporary || !store.owned) return false;
     try {
       if(game.over) {
         if(protectedResult)return store.read().kind==='terminal';
         store.remove();record=null;failure=false;status('本局已结束，未完成存档已清理');return true;
       }
-      if(!game.drops)return true;
+      if(!game.drops&&!includeEmpty)return true;
       record=store.record(roundId,game.snapshot(),leaderboard.exportSession());
       store.write(record); lastSave=performance.now(); failure=false;
       status(`已保存 · ${new Date(record.savedAt).toLocaleTimeString('zh-CN')}`);
@@ -220,6 +220,7 @@ export function createSaveFlow({ game, leaderboard, pauses, showModal, onNew, on
   return {
     store, initialize, flush, newGame,
     get roundId() { return roundId; },
+    get boundPlayerId() { return (record||store.read().record)?.online?.playerId||null; },
     get temporary() { return temporary; },
     get blocked() { return state!=='active'; },
     get canSubmit() { return state==='active' && (store.owned || temporary); },

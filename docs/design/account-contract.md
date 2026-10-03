@@ -144,7 +144,7 @@ Linux.do-only 用户通过新 OAuth 流程获得 `set_password` 或 `rotate_reco
 | POST `/api/auth/password/recover` | `{loginHandle,recoveryCode,newPassword,...WriteOperation}` | 200 AuthResult＋新的 recoveryCode；原恢复码只消费一次，旧会话全部撤销 |
 | POST `/api/account/password` | Bearer；`{operation:"recover",newPassword,reauthProof,...WriteOperation}` | 仅 linked 且 recover_password OAuth grant；200 AuthResult＋新 recoveryCode；不接受旧持久 bearer 单独重置密码 |
 | POST `/api/account/recovery-code` | Bearer；`{reauthProof,...WriteOperation}` | 200 `{recoveryCode,createdAt}`；仅正式账号；原码失效，当前会话不变 |
-| POST `/api/rename` | Bearer；`{name}` | 原 guest 兼容；password/linked 修改展示昵称，不修改 loginHandle；仅 linuxdo 可设置合规本地昵称，不修改上游身份 |
+| POST `/api/rename` | Bearer；`{name}` | 原 guest 兼容；password/linked 修改展示昵称，不修改 loginHandle；仅 linuxdo 先设置本地密码账号，再自主修改公开昵称；不修改上游身份 |
 | POST `/api/logout` | 当前 Bearer | 保留原 `{ok:true}`；撤销当前会话及关联未完成敏感意图 |
 
 新注册返回的 recoveryCode 为服务器随机 32 字节、base64url 或分组显示形式；保存去分隔符后的高熵字节的 SHA-256。解析只消除产品主动加入的分组符，不对任意输入做会降熵的模糊匹配。
@@ -216,3 +216,17 @@ A01 可按已有计划执行。A02 可使用本契约做原型；A03 数据准�
 - `POST /api/auth/operations/result` 只接受原三件证明，返回 pending 或受保护结果；`POST /api/auth/operations/cancel` 仅取消尚未完成的操作。已提交时返回完成结果，不声称撤销。
 - A04 准备操作不包含 `exchange_login`；新 OAuth 绑定/近期验证仍归 A05。密码入口默认关闭，Compose 密码 overlay 为发布阶段明确启用项。
 - 独立密钥用途为 ticket / receipt / payload / rate。保留 TTL 内旧版本；运维报告预览最多 500 行一批的过期回执脱敏、24 小时 tombstone 清理与 token/grant/reservation 清理，不自动执行。
+
+
+## A05 实现细化（2026-10-04）
+
+- 原生账号服务启用且已配置 Linux.do 时，`oauthAccountActions=true`。新动作复用 `exchange_login` 操作意图：准备 body 增加 `oauthAction`、`clientNonce` 和 reauth 的 `purpose`；start 同时携带该意图的三件证明，服务器验证 action/purpose/nonce 与准备信息一致。密码绑定的近期证明在首次 start 原子消费，重试同一 start 返回相同的加密保存授权地址。
+- `0007_oauth_account_flows.sql` 只作增量；0001—0006 不改动。新流程独立于 legacy OAuth 表。回调完成外部授权后仅保存加密的最小身份/登录码材料，不创建玩家、不绑定或合并；原浏览器兑换 nonce＋操作证明后，在同一 SQLite 事务中完成写入与受保护回执。
+- OAuth 操作最长十分钟；一次性登录码两分钟。回调 URL fragment 增加 `oauth=1` 格式标记；密码、reauth grant、最终 token 不进入 URL。重复 callback/兑换、取消、退出和回执过期均有明确状态；取消未提交授权可阻止后续兑换，已经提交的操作只返回完成结果，不假称撤销。
+- 新绑定撤销源账号旧会话并递增版本；游客合入已有 Linux.do 时撤销源游客凭据，只迁移允许的历史/局/次数；目标账号的既有会话保持。旧客户端仍走受控 legacy 路径，不能将正式密码账号当游客吞并，不能获取敏感 grant。
+- OAuth reauth 必须返回当前已绑定的同一外部身份。设密、恢复和轮换恢复码证明仅用于指定用途/玩家/token/版本，五分钟且单次消费。OAuth 恢复准备使用 `recover_password`＋`recoveryMethod:"linuxdo"` 和当前 Bearer；最终发送到 `/api/account/password` 的 recover 分支。
+- 仅 Linux.do、未设本地密码时，没有用于密码恢复的完整本地账号；界面明确其恢复码不能代替 Linux.do 登录，并引导先设置密码登录，届时生成新的完整恢复信息。
+- 浏览器 nonce、登录码和操作证明仅放本标签页 sessionStorage；导航前确认写入成功。密码和 grant 只在内存。兑换响应丢失后，可刷新并检查原回执；跨页身份变化不能被旧回跳覆盖。
+- 过期会话保留本机玩家和原局，允许密码或 Linux.do 重新登录同一玩家。后者使用匿名 OAuth 登录，但客户端绑定旧身份指纹并核验结果 playerId；错误的外部账号不替换当前身份。新身份也不能接管本机保留的另一玩家正式局。
+- OAuth 前保存原局，包括尚未投放但已有凭证的经典局；返回后核验原凭证，不创建替代机会。经典手动暂停可恢复；每日模式返回原模式并保留原机会。跨身份游客流程仍先处理正式记录，经典已开始局需明确转本地。
+- 新表密文与 nonce 随既有运维报告按期限清理；预览不写数据，每批上限沿用 500 行。未新增生产定时任务。

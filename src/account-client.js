@@ -43,7 +43,7 @@ export class AccountClient {
     if(!ACTIONS.includes(action))error('bad_request','操作类型不正确');
     if(action==='register'&&this.identity.player)error('credentials_exist','请先退出当前账号；游客请使用设置密码入口');
     if(this.intentError)error('intent_unreadable','无法读取之前的账号操作记录，请先使用完整账号登录');
-    const selected=['register','set_password'].includes(action)?{name:fields.name}:action==='recover_password'?{loginHandle:fields.loginHandle}:{};
+    const selected=['register','set_password'].includes(action)?{name:fields.name}:action==='recover_password'?{loginHandle:fields.loginHandle,...(fields.recoveryMethod?{recoveryMethod:fields.recoveryMethod}:{})}:{};
     if(this.intent&&(this.intent.action!==action||JSON.stringify(this.intent.fields)!==JSON.stringify(selected)))error('operation_in_progress','请先处理上一份账号操作，避免重复创建');
     if(!this.serverClock)await this.features();
     if(!this.serverClock)error('offline','暂时无法确认账号服务时间，请重新打开账号面板');
@@ -52,7 +52,7 @@ export class AccountClient {
       if(!this.intent){this.intent={schemaVersion:1,action,fields:selected,requestId:newIntentId(Math.floor(this.serverClock.now+performance.now()-this.serverClock.at-1000)),retrySecret:secret(),actorId:snapshot.id??null,actorHash:hash,submitted:false,loginHandle:this.identity.player?.account?.loginHandle||selected.loginHandle||null};this.persist(this.intent);}
       const i=this.intent;
       if(i.actorId!==(snapshot.id??null)||i.actorHash!==hash)error('identity_changed','账号已变化，请先处理原操作');
-      const data=await this.request('/api/auth/operations',{method:'POST',token:['register','recover_password'].includes(action)?undefined:snapshot.token,body:{action,...selected,requestId:i.requestId,retrySecret:i.retrySecret}});
+      const data=await this.request('/api/auth/operations',{method:'POST',token:action==='register'||(action==='recover_password'&&selected.recoveryMethod!=='linuxdo')?undefined:snapshot.token,body:{action,...selected,requestId:i.requestId,retrySecret:i.retrySecret}});
       if(!this.identity.accountRequestCurrent(snapshot))error('identity_changed','账号已变化，请重新打开账号面板');
       if(typeof data.operationTicket!=='string'||!Number.isSafeInteger(data.expiresAt))error('bad_response','未收到完整的账号操作信息');
       Object.assign(i,{operationTicket:data.operationTicket,expiresAt:data.expiresAt,loginHandle:data.loginHandle||i.loginHandle});this.persist(i);return i;
@@ -65,8 +65,8 @@ export class AccountClient {
     const {result,snapshot}=await this.guarded(async snapshot=>{
       if(i.actorId!==(snapshot.id??null)||i.actorHash!==await fingerprint(snapshot.token))error('identity_changed','账号已变化，请检查原操作结果');
       i.submitted=true;this.persist(i);
-      const body={...proof(i),...payload};if(i.action==='set_password')body.operation='set';if(i.action==='change_password')body.operation='change';if(i.action==='recover_password')body.loginHandle=i.fields.loginHandle;
-      return this.request(routes[i.action],{method:'POST',token:['register','recover_password'].includes(i.action)?undefined:snapshot.token,body});
+      const body={...proof(i),...payload};if(i.action==='set_password')body.operation='set';if(i.action==='change_password')body.operation='change';if(i.action==='recover_password'){if(i.fields.recoveryMethod==='linuxdo')body.operation='recover';else body.loginHandle=i.fields.loginHandle;}
+      return this.request(i.action==='recover_password'&&i.fields.recoveryMethod==='linuxdo'?'/api/account/password':routes[i.action],{method:'POST',token:i.action==='register'||(i.action==='recover_password'&&i.fields.recoveryMethod!=='linuxdo')?undefined:snapshot.token,body});
     });
     try{await this.adopt(result,snapshot,i);return result;}finally{this.identity.endAccountRequest(snapshot);}
   }
@@ -113,7 +113,7 @@ export class AccountClient {
   async reauth(password,purpose){
     const {result,snapshot}=await this.guarded(snapshot=>this.request('/api/account/reauth',{method:'POST',token:snapshot.token,body:{password,purpose}}));this.identity.endAccountRequest(snapshot);return result;
   }
-  async features(){try{const result=await this.request('/api/auth/capabilities');if(Number.isSafeInteger(result.serverNow))this.serverClock={now:result.serverNow,at:performance.now()};if(!globalThis.crypto?.subtle||!crypto.randomUUID){result.passwordEnabled=false;result.registrationEnabled=false;}return result;}catch{return {passwordEnabled:false,registrationEnabled:false,linuxdoEnabled:true};}}
+  async features(){try{const result=await this.request('/api/auth/capabilities');if(Number.isSafeInteger(result.serverNow))this.serverClock={now:result.serverNow,at:performance.now()};if(!globalThis.crypto?.subtle||!crypto.randomUUID){result.passwordEnabled=false;result.registrationEnabled=false;result.oauthAccountActions=false;}return result;}catch{return {passwordEnabled:false,registrationEnabled:false,linuxdoEnabled:true};}}
   cancel(){this.generation++;this.identity.cancelIdentityRequests();}
   clear(){const id=this.intent?.requestId;try{const stored=this.storedIntent();if(!stored||stored.requestId===id)this.storage?.removeItem(this.key);}catch{}this.intent=null;this.intentDurable=false;this.intentError=false;this.lastResult=null;}
 }

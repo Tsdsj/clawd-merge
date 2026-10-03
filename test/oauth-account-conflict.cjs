@@ -1,0 +1,10 @@
+// Fresh browser context; provider user A must already belong to another account.
+async page => {
+ const url=new URL(page.url()),api=new URL(url.searchParams.get('api'));if(url.hostname!=='127.0.0.1'||api.hostname!=='127.0.0.1')throw Error('loopback fixture only');
+ await page.locator('#join-btn').click();await page.getByRole('button',{name:'创建密码账号',exact:true}).click();await page.locator('#auth-name').fill('冲突验收');await page.getByRole('button',{name:'确认名字，获取编号'}).click();await page.locator('#auth-pass').fill('Conflict-password-2026');await page.locator('#auth-confirm').fill('Conflict-password-2026');await page.getByRole('button',{name:'创建账号并保留成绩'}).click();await page.getByRole('heading',{name:'请保存账号信息'}).waitFor();await page.getByRole('checkbox',{name:'我已保存完整账号和恢复码'}).check();await page.getByRole('button',{name:'保存好了，继续玩'}).click();
+ await page.locator('#player-chip').click();await page.getByRole('heading',{name:'我的账号',exact:true}).waitFor();const handle=(await page.locator('.auth-credentials strong').textContent()).trim();
+ await page.locator('[data-action="bind"]').click();await page.locator('#auth-old').fill('Conflict-password-2026');await page.getByRole('button',{name:'验证并继续'}).click();await page.getByRole('button',{name:'确认，前往 Linux.do 授权'}).click();await page.getByRole('link',{name:'授权测试甲',exact:true}).click();
+ await page.getByRole('heading',{name:'无法完成这次绑定'}).waitFor();if(!(await page.locator('.auth-content').innerText()).includes('另一个账号'))throw Error('conflict not explained');await page.screenshot({path:'test-results/account-a05/conflict.png'});
+ await page.getByRole('button',{name:'取消未完成的授权'}).click();await page.getByRole('heading',{name:'我的账号',exact:true}).waitFor();if((await page.locator('.auth-credentials strong').textContent()).trim()!==handle)throw Error('original account changed');if(!(await page.locator('.auth-content').innerText()).includes('密码账号'))throw Error('unexpected merge');
+ return {passed:'formal account conflict leaves original password identity unchanged and can be safely dismissed'};
+}

@@ -102,7 +102,8 @@ export class ChallengeApi {
     this.clock = { serverNow: now, at: this.monotonic() };
   }
   unchanged(player) {
-    if ((this.getPlayer()?.id || null) !== (player?.id || null))
+    const current=this.getPlayer();
+    if ((current?.id || null) !== (player?.id || null)||(current?.token||null)!==(player?.token||null))
       throw new ChallengeClientError('identity_changed', '身份已变化，请切回原身份继续', 409);
   }
   cached() {

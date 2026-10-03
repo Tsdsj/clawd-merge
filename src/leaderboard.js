@@ -126,6 +126,7 @@ export const leaderboard = {
 
   get sessionFailure() { return this.sessionStatus === 'offline' ? this.round?.errorCode || 'unknown' : null; },
   get sessionMessage() {
+    if(this.sessionExpired)return '登录已失效，原局保留；重新登录后核验资格。';
     const status=this.sessionStatus;
     if(status==='pending')return '正在确认本局上榜资格，可继续玩…';
     if(status==='online')return '本局参与排名';
@@ -137,6 +138,7 @@ export const leaderboard = {
   save(player, token = this.player?.token) {
     identityRevision++;
     this.player = { ...player, token };
+    this.sessionExpired=false;
     this.signedOut=false;this.logoutStorageFailed=false;
     this.memoryOnly=!writePreference(PLAYER_KEY, JSON.stringify(this.player));
     observedStorage=readPreference(PLAYER_KEY);
@@ -188,6 +190,7 @@ export const leaderboard = {
     identityRevision++;
     const token=this.player?.token;
     this.player = null;
+    this.sessionExpired=false;
     this.signedOut=true;this.logoutStorageFailed=false;
     this.memoryOnly=false;
     this.round = null;

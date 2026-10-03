@@ -1032,6 +1032,7 @@ export function createChallengeUI({
     }
     api.data = null;
     uploads.queue.wakeIdentity();
+    if(formal()&&session.status==='active'&&current()&&!current().over&&p?.id===session.record.online.playerId)void session.resumeFormal();
     if (active) void loadToday();
   }
   $("practice").onclick = () => newPractice();
@@ -1224,7 +1225,8 @@ export function createChallengeUI({
       return active;
     },
     hasBoundWork: (playerId) => uploads.hasBoundWork(playerId),
-    credentialRotationBlocked:()=>Boolean(session.pendingIntent||['starting','intent-invalid'].includes(session.status)||uploads.queue.list().some(e=>e.state==='uploading')),
+    get boundPlayerId(){const pending=session.store.readIntent(),saved=session.store.read();return pending.kind==='intent'?pending.intent.playerId:saved.record?.mode==='formal'&&saved.record.game.challenge.phase!=='finished'?saved.record.online?.playerId||null:null;},
+    credentialRotationBlocked:()=>Boolean(session.checking||session.pendingIntent||['starting','intent-invalid'].includes(session.status)||uploads.queue.list().some(e=>e.state==='uploading')),
     canNavigateForAuth() {
       if (
         session.status === "active" &&

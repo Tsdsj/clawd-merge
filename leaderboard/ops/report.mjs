@@ -19,6 +19,7 @@ const TABLES = [
   "reauth_grants",
   "auth_operations",
   "login_handle_reservations",
+  "oauth_account_flows",
 ];
 const DAY = 86400000;
 const unknown = {
@@ -100,6 +101,7 @@ export async function collectReport(query, options) {
     r.storage.tables[table] = schema.has(table)
       ? await scalar(`rows:${table}`, `SELECT COUNT(*) AS n FROM ${table}`)
       : null;
+  r.oauthSchemaReady=schema.has('oauth_account_flows');
   r.authSchemaReady=schema.has('auth_operations')&&(await q('auth-schema',"PRAGMA table_info(auth_operations)")).some(c=>c.name==='operation_ticket');
   const acceptedSources = [];
   if (schema.has("scores")) {
