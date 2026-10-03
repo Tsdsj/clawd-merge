@@ -22,6 +22,7 @@ export function createAccountUI({client,oauth,identity,setOpen,onChanged,guard,o
   title.textContent=next==='register'&&p?'设置密码登录':titles[next]||'账号管理';
   const oauthTitles={bind:'绑定 Linux.do',bindConfirm:'确认绑定 Linux.do',oauthPending:'检查 Linux.do 授权',oauthConflict:'无法完成这次绑定',oauthReset:'重新设置密码',reauthExpired:'请重新验证',relogin:'重新登录原账号'};
   if(oauthTitles[next])title.textContent=oauthTitles[next];
+  if(next==='cleanup')title.textContent='结束本次操作';
   if(next==='entry')html=`<p>换设备，也能找回你的成绩。</p>${capabilities.passwordEnabled?button('登录已有账号','login',true):notice('密码服务暂不可用。你仍可使用游客或 Linux.do。')}${capabilities.registrationEnabled?button('创建密码账号','register'):''}<div class="auth-divider">也可以</div>${capabilities.linuxdoEnabled?button('使用 Linux.do 继续','linuxdo'):''}<div class="auth-row">${button('先用游客玩','guest')}${button('暂不加入，继续本地玩','close')}</div><p class="auth-hint">账号保存排行榜成绩与历史，不同步棋盘。</p>`;
   if(next==='loading')html=notice('正在读取账号信息…')+button('重试读取','account');
   if(next==='guest')html=`<p>游客可以参加排行；换设备或清除浏览器数据后，可能无法找回。</p>${form('guest',field('游客名字','name','', '2—12 个字符，可以同名，系统会加上编号。'),'以游客身份加入')}${button('返回','entry')}`;
@@ -45,6 +46,7 @@ export function createAccountUI({client,oauth,identity,setOpen,onChanged,guard,o
   if(next==='success')html=`${kind==='linuxdo'?notice('此账号尚未设置本地密码账号，目前仍需 Linux.do 登录。若要通过完整账号和恢复码找回，请先设置密码登录，届时会生成新的恢复码。'):''}<div class="auth-success-mark" aria-hidden="true">✓</div><h3>${client.intent?.action==='recover_password'?'密码已重设':client.intent?.action==='rotate_recovery'?'恢复码已更换':'账号准备好了'}</h3>${identity.memoryOnly?notice('未能保存登录状态。本页可以继续使用，刷新或关闭后需重新登录。请先保存下面的信息。','auth-error'):''}${handleCard()}<div class="auth-credentials"><span class="auth-hint">一次性恢复码</span><strong class="auth-code">${esc(result?.recoveryCode)}</strong>${button('复制恢复码','copy-code')}</div><p class="auth-hint">请现在保存在密码管理器或其他安全位置。恢复码使用后失效。</p><label class="auth-check"><input id="auth-saved" type="checkbox">${kind==='linuxdo'?'我已保存恢复码，了解仍需 Linux.do 登录':'我已保存完整账号和恢复码'}</label><button class="auth-button auth-primary" data-action="finish" disabled>保存好了，继续玩</button>${identity.memoryOnly?button('重试保存登录状态','retry-storage'):''}`;
   if(next==='done')html=`${notice(client.intent?.action==='change_password'?'密码已修改，原恢复码仍然有效。':'登录成功。','auth-success')}${identity.memoryOnly?notice('未能保存登录状态。本页可用，刷新后请重新登录。','auth-error'):''}${handleCard()}${identity.memoryOnly?button('重试保存登录状态','retry-storage'):''}${button('继续玩','finish',true)}`;
   if(next==='uncertain')html=`${notice('操作可能已经完成。请先检查原操作结果，避免重复创建账号。')}${handleCard()}${button('检查本次结果','inspect',true)}${client.intent?.operationTicket?button('取消仍未完成的操作','cancel-intent'):''}${button('先继续本地玩','close')}`;
+  if(next==='cleanup')html=`${notice('服务器已确认取消；浏览器尚未更新本机记录。请重试结束操作，原账号保持不变。')}${button('重试结束操作','cancel-intent',true)}${button('先回游戏','close')}`;
   if(next==='expired')html=`${notice('本次结果已无法重新读取。请用保存的完整账号和设置的密码尝试登录；不要直接重复注册。','auth-error')}${handleCard()}${button('前往登录','expired-login',true)}`;
   if(next==='guard')html=`${notice(message)}${continuation?button('已了解，继续','guard-confirm',true):''}${button('查看待处理记录','pending')}${button('返回','guard-back')}`;
   if(next==='leave')html=`${notice('关闭后将不再显示这份恢复码。建议先保存完整账号和恢复码。','auth-error')}${button('返回保存信息','success',true)}${button('知道了，仍然关闭','force-close')}`;
@@ -54,18 +56,20 @@ export function createAccountUI({client,oauth,identity,setOpen,onChanged,guard,o
   if(next==='success')content.querySelector('#auth-saved').onchange=e=>content.querySelector('[data-action=finish]').disabled=!e.target.checked;
   content.scrollTop=0;const focus=content.querySelector('input:not([hidden]),button:not(:disabled),summary');focus?.focus({preventScroll:true});
  }
+ async function cancelRejectedIntent(){try{await client.cancelPending();return true;}catch(error){render(error.operationCancelled?'cleanup':'uncertain',error.message);return false;}}
  async function run(work,after){
   if(busy)return;busy=true;const owner=++busyOwner,frame=revision;const submit=content.querySelector('button[type=submit]');if(submit)submit.disabled=true;const status=content.querySelector('.auth-error-text');if(status){status.setAttribute('role','status');status.classList.add('auth-waiting');status.textContent='正在确认，请稍候…';}
   try{const value=await work();if(!visible||revision!==frame)return;await after?.(value);}
   catch(error){if(!visible||revision!==frame)return;if(oauth?.pending)oauth.lastError=error.code;
-    if(oauth?.pending&&['binding_conflict','identity_mismatch'].includes(error.code))render('oauthConflict',error.message);
+    if(error.code==='local_cleanup_failed'&&error.operationCancelled)render('cleanup',error.message);
+    else if(oauth?.pending&&['binding_conflict','identity_mismatch'].includes(error.code))render('oauthConflict',error.message);
     else if(oauth?.pending)render('oauthPending',error.message);
     else if(error.status===401&&error.code==='unauthorized'&&identity.player){identity.sessionExpired=true;render('relogin',error.message);}
-    else if(oauthGrant&&['invalid_reauth','reauth_required'].includes(error.code)){await client.cancelPending().catch(()=>{});oauthGrant=null;render('reauthExpired',error.message);}
+    else if(oauthGrant&&['invalid_reauth','reauth_required'].includes(error.code)){oauthGrant=null;if(await cancelRejectedIntent())render('reauthExpired',error.message);}
     else if(client.intent?.submitted&&['timeout','offline','auth_busy','internal','bad_response'].includes(error.code))render('uncertain',error.message);
     else if(['operation_expired','operation_stale'].includes(error.code))render('expired',error.message);
     else{const message=content.querySelector('.auth-error-text');if(message){message.setAttribute('role','alert');message.classList.remove('auth-waiting');message.textContent=error.message||'暂时无法完成，请稍后重试';}else content.insertAdjacentHTML('afterbegin',notice(error.message||'暂时无法完成，请稍后重试','auth-error'));
-      if(error.code==='invalid_credentials'&&client.intent){await client.cancelPending().catch(()=>{});}
+      if(error.code==='invalid_credentials'&&client.intent)await cancelRejectedIntent();
       if(error.retryAfterMs&&submit){const until=Date.now()+error.retryAfterMs;const tick=()=>{if(!visible||revision!==frame)return;const seconds=Math.max(0,Math.ceil((until-Date.now())/1000));submit.textContent=seconds?`${seconds} 秒后重试`:'重试';submit.disabled=Boolean(seconds);if(seconds)setTimeout(tick,1000);};setTimeout(tick,0);}
     }
   }finally{if(owner===busyOwner)busy=false;if(submit&&revision===frame)submit.disabled=false;}
@@ -78,10 +82,12 @@ export function createAccountUI({client,oauth,identity,setOpen,onChanged,guard,o
  function success(data){oauthGrant=null;bindGrant=null;result=data;onChanged?.();render(data.recoveryCode?'success':'done');}
  async function showAccount(){me=null;render('loading');await run(()=>client.profile(),data=>{me=data;render('account');});}
  function presentOAuth(data){if(data.kind==='reauth'){oauthGrant=data;oauth.clear();render(data.purpose==='set_password'?'register':data.purpose==='recover_password'?'oauthReset':'rotate');}else{oauth.clear();success(data);}}
+ function clearIntent(){try{client.clear();return true;}catch(error){const saved=Boolean(content.querySelector('#auth-saved')?.checked);render(screen,error.message);if(saved){content.querySelector('#auth-saved').checked=true;content.querySelector('[data-action=finish]').disabled=false;}return false;}}
  function close(force=false){
+  if(!force&&screen==='leave'){render('success');return;}
   if(!force&&screen==='success'&&!content.querySelector('#auth-saved')?.checked){render('leave');return;}
   if(busy&&!force)notify?.('操作可能仍在进行，可在账号面板检查结果。',5000);
-  if(force&&screen==='leave')client.clear();
+  if(force&&screen==='leave'&&!clearIntent())return;
   visible=false;revision++;busyOwner++;busy=false;client.cancel();oauthGrant=null;bindGrant=null;for(const input of content.querySelectorAll('input'))input.value='';result=null;setOpen(false);
  }
  closeButton.onclick=()=>close();element.addEventListener('click',e=>{if(e.target===element)close();});
@@ -91,7 +97,7 @@ export function createAccountUI({client,oauth,identity,setOpen,onChanged,guard,o
   const action=b.dataset.action;if(!action||busy)return;
   if(action==='copy-handle'||action==='copy-code'){const text=action==='copy-code'?result?.recoveryCode:handle();navigator.clipboard?.writeText(text).then(()=>{b.textContent='已复制';}).catch(()=>{b.textContent='复制失败，请手动选择上方文本';});return;}
   if(action==='close')return close();if(action==='force-close')return close(true);
-  if(action==='finish'){if(screen==='success'&&!content.querySelector('#auth-saved')?.checked)return;client.clear();return close(true);}
+  if(action==='finish'){if(screen==='success'&&!content.querySelector('#auth-saved')?.checked)return;if(!clearIntent())return;return close(true);}
   if(action==='retry-storage')return void run(()=>identity.retryAccountStorage(),()=>render(screen));
   if(action==='account'){oauthGrant=null;bindGrant=null;return void showAccount();}
   if(action==='bind')return kindOf(identity.player)==='guest'?render('bindConfirm'):render('bind');
@@ -112,7 +118,7 @@ export function createAccountUI({client,oauth,identity,setOpen,onChanged,guard,o
   if(action==='logout')return void protectedAction('logout',async()=>{client.clear();return identity.logout();},outcome=>{close(true);onChanged?.();notify?.(!outcome.storageCleared?'已退出本页，但未能清除本机登录信息；请检查浏览器存储权限。':!outcome.remoteConfirmed?'已退出本机；暂时无法确认服务器退出。':'已退出，本局可继续本地游玩。',6000);});
   if(action==='inspect')return void run(()=>client.inspect(),data=>{if(data.kind==='pending'){render('uncertain','服务器尚未确认完成。可以稍后检查，或先取消这份未完成的操作。');}else success(data);});
   if(action==='cancel-intent')return void run(()=>client.cancelPending(),async data=>{if(data.kind==='completed')success(data.result);else if(identity.player&&kindOf(identity.player)!=='guest'){me=await client.profile();render('account','已取消未完成的操作。');}else render(identity.player?'register':'entry','已取消未完成的操作。');});
-  if(action==='expired-login'){const saved=handle();client.clear();render('login');const input=content.querySelector('#auth-handle');if(input)input.value=saved;return;}
+  if(action==='expired-login'){const saved=handle();if(!clearIntent())return;render('login');const input=content.querySelector('#auth-handle');if(input)input.value=saved;return;}
   render(action);
  });
  content.addEventListener('submit',e=>{

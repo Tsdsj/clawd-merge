@@ -25,3 +25,21 @@ test('late prepare response cannot become current after identity changes',async(
 test('corrupt saved operation cannot silently create a duplicate registration',async()=>{
  const {client}=fixture(transport,{getItem:()=>'{bad'});await assert.rejects(client.prepare('register',{name:'Test'}),{code:'intent_unreadable'});
 });
+
+test('A06 a transient intent deletion failure preserves the original operation and can be retried',async()=>{
+ const map=new Map();let failDelete=true;
+ const storage={getItem:k=>map.get(k)||null,setItem:(k,v)=>map.set(k,v),removeItem(k){if(failDelete){failDelete=false;throw Error('temporary storage failure');}map.delete(k);}};
+ const {client}=fixture(async(path)=>path.endsWith('/cancel')?{kind:'cancelled'}:transport(path),storage);
+ await client.prepare('register',{name:'Test'});const original=client.intent.requestId;
+ await assert.rejects(client.cancelPending(),{code:'local_cleanup_failed'});
+ assert.equal(client.intent.requestId,original);assert.ok(map.has(client.key));
+ assert.equal((await client.cancelPending()).kind,'cancelled');assert.equal(client.intent,null);assert.equal(map.has(client.key),false);
+ await client.prepare('register',{name:'Next'});assert.notEqual(client.intent.requestId,original);
+});
+test('A06 a newly observed operation from another page is kept rather than replaced by a failed new intent',async()=>{
+ const map=new Map(),storage={getItem:k=>map.get(k)||null,setItem:(k,v)=>map.set(k,v),removeItem:k=>map.delete(k)};
+ const first=fixture(transport,storage).client,second=fixture(transport,storage).client;
+ await first.prepare('register',{name:'Original'});const original=first.intent.requestId;
+ await assert.rejects(second.prepare('register',{name:'Another'}),{code:'identity_changed'});
+ assert.equal(second.intent.requestId,original);assert.equal(JSON.parse(map.get(first.key)).requestId,original);
+});

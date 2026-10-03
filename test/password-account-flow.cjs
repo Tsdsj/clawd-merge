@@ -1,7 +1,7 @@
 // Run with Playwright CLI --filename against test/password-account-browser.mjs.
 // This driver refuses non-loopback origins and never returns credentials.
 async page => {
- const url=new URL(page.url()),api=new URL(url.searchParams.get('api')||'https://invalid.example');
+ const {url,api}=await page.evaluate(()=>{const u=new URL(location.href),a=new URL(u.searchParams.get('api')||'https://invalid.example');return {url:{hostname:u.hostname},api:{hostname:a.hostname,origin:a.origin}};});
  if(!['127.0.0.1','localhost'].includes(url.hostname)||!['127.0.0.1','localhost'].includes(api.hostname))throw Error('Use the isolated loopback fixture');
  const check=(value,message)=>{if(!value)throw Error(message);};const passed=[];
  const password='UI-password-2026-with-spaces',changed='Changed-password-2026',recovered='Recovered-password-2026';
@@ -23,7 +23,7 @@ async page => {
  await page.locator('[data-action="rename"]').click();await page.locator('#auth-name').fill('公开新昵称');await page.getByRole('button',{name:'保存公开昵称'}).click();await page.getByRole('heading',{name:'我的账号',exact:true}).waitFor();
  check((await page.locator('.auth-credentials strong').textContent()).trim()===handle,'fixed handle after rename');passed.push('rename keeps login handle');
  await page.locator('[data-action="change"]').click();await page.locator('#auth-old').fill(password);await page.locator('#auth-pass').fill(changed);await page.locator('#auth-confirm').fill(changed);
- let starts=0;const listener=request=>{if(new URL(request.url()).pathname==='/api/session'&&request.method()==='POST')starts++;};page.on('request',listener);
+ let starts=0;const listener=request=>{if(request.url().split('?')[0].endsWith('/api/session')&&request.method()==='POST')starts++;};page.on('request',listener);
  await page.getByRole('button',{name:'确认修改密码'}).click();await page.getByRole('heading',{name:'操作已完成'}).waitFor();
  check(await page.locator('.auth-code').count()===0,'password change does not rotate code');await page.getByRole('button',{name:'继续玩',exact:true}).click();
  const after=await page.evaluate(()=>({drops:window.clawd.drops,score:window.clawd.score,paused:window.clawd.paused}));

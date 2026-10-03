@@ -73,7 +73,8 @@ export function createPasswordAuth({DB,keyring,kdf,enabled=false}) {
   const verificationRate=handle=>tx(db=>{rate(db,'password-ip:'+mac(ring.rate,ip),30,15*60000);rate(db,'password-account:'+accountBucket(handle),10,15*60000);});
   async function derive(password,salt){try{return await kdf(password,salt);}catch(error){if(error.code==='auth_busy'){const e=new h.ApiError(503,'auth_busy','正在处理其他登录，请稍后重试');e.retryAfter=1;throw e;}fail(503,'password_auth_disabled','密码服务暂不可用，请稍后再试');}}
   function credential(db,handle){return db.prepare(`SELECT c.*,p.auth_version FROM password_credentials c JOIN players p ON p.id=c.player_id WHERE c.login_handle_key=?`).get(handle);}
-  function currentCredential(db,old){const c=credential(db,old.login_handle_key);return c&&c.player_id===old.player_id&&c.auth_version===old.auth_version&&c.derived_key===old.derived_key&&c.salt===old.salt;}
+  const supportedCredential=c=>c?.algorithm==='scrypt'&&c.params_version===1;
+  function currentCredential(db,old){const c=credential(db,old.login_handle_key);return c&&c.player_id===old.player_id&&c.auth_version===old.auth_version&&c.algorithm===old.algorithm&&c.params_version===old.params_version&&c.derived_key===old.derived_key&&c.salt===old.salt;}
   function view(db,id){const p=db.prepare(`SELECT p.*, c.player_id AS credential_player_id,c.login_handle FROM players p LEFT JOIN password_credentials c ON c.player_id=p.id WHERE p.id=?`).get(id);if(!p)fail(409,'identity_changed','账号已变化，请重新登录');const recovery=db.prepare('SELECT 1 FROM recovery_codes WHERE player_id=?').get(id);return {kind:'authenticated',player:h.publicPlayer(p),...accountState(p,recovery,{passwordEnabled:available,linuxdoEnabled:Boolean(env.LINUXDO_CLIENT_ID&&env.LINUXDO_CLIENT_SECRET),namingEnabled:Boolean(NAME_POLICY_VERSION)})};}
   function issueToken(db,id,method){const p=db.prepare('SELECT auth_version FROM players WHERE id=?').get(id);const value=random(),expiresAt=now()+SESSION_TTL;db.prepare('INSERT INTO tokens(token_hash,player_id,created_at,auth_method,auth_version,authenticated_at,expires_at) VALUES(?,?,?,?,?,?,?)').run(sha(value),id,now(),method,p.auth_version,now(),expiresAt);const data=view(db,id);delete data.sessionExpiresAt;return {...data,token:value,expiresAt};}
   function recoveryCode(db,id){const code=random();db.prepare('INSERT INTO recovery_codes(player_id,code_hash,version,created_at) VALUES(?,?,1,?) ON CONFLICT(player_id) DO UPDATE SET code_hash=excluded.code_hash,version=recovery_codes.version+1,created_at=excluded.created_at').run(id,sha(code),now());return code;}
@@ -190,7 +191,7 @@ export function createPasswordAuth({DB,keyring,kdf,enabled=false}) {
     if(!handle)invalid();requirePassword(body.password);
     if(reauth&&!['bind_linuxdo','change_password','rotate_recovery'].includes(body.purpose))fail(400,'bad_request','验证用途不正确');
     verificationRate(handle);const saved=credential(raw,handle);const derived=await derive(body.password,saved?.salt||dummySalt);
-    if(!saved||saved.algorithm!=='scrypt'||saved.params_version!==1||!same(saved.derived_key,derived))invalid();
+    if(!supportedCredential(saved)||!same(saved.derived_key,derived))invalid();
     const result=tx(db=>{if(!currentCredential(db,saved))invalid();if(reauth){const current=actor(db);if(current.id!==p.id||current.auth_version!==p.auth_version)invalid();const value=random();db.prepare('INSERT INTO reauth_grants VALUES(?,?,?,?,?,?)').run(sha(value),p.id,tokenHash,p.auth_version,body.purpose,now()+GRANT_TTL);return {kind:'reauth',reauthProof:value,expiresAt:now()+GRANT_TTL};}return issueToken(db,saved.player_id,'password');});return json(result);
   }
   const op=proof();let action;
@@ -210,7 +211,7 @@ export function createPasswordAuth({DB,keyring,kdf,enabled=false}) {
   recheckName();
   let saved=null,rec=null,salt=null,derived=null;
   if(action==='change_password'){
-    const p=actorOf(raw,op);saved=credential(raw,loginHandleKey(p.login_handle));verificationRate(saved.login_handle_key);const value=await derive(body.oldPassword,saved.salt);if(!same(value,saved.derived_key))invalid();
+    const p=actorOf(raw,op);saved=credential(raw,loginHandleKey(p.login_handle));if(!supportedCredential(saved))invalid();verificationRate(saved.login_handle_key);const value=await derive(body.oldPassword,saved.salt);if(!same(value,saved.derived_key))invalid();
   }
   if(action==='recover_password'){
     if(op.recovery_method==='linuxdo'){const p=actorOf(raw,op);if(p.linuxdo_id==null||!p.credential_player_id)fail(403,'reauth_required','请重新验证当前账号');saved=credential(raw,op.login_handle_key);grant(raw,op,'recover_password');}

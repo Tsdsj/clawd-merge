@@ -351,9 +351,9 @@ accountPanel=createAccountUI({client:accountClient,oauth:oauthClient,identity:le
 modals.push(accountPanel.element);
 function askName(message=''){void accountPanel.open('entry',message);if(externalIdentityChanged)accountPanel.externalIdentityChanged();}
 function openAccount(message=''){void accountPanel.open(leaderboard.player?'account':'entry',message);if(externalIdentityChanged)accountPanel.externalIdentityChanged();}
-$('join-btn').addEventListener('click',()=>askName());
-$('result-join').addEventListener('click',()=>askName());
-$('player-chip').addEventListener('click',()=>openAccount());
+$('join-btn').addEventListener('click',event=>{event.currentTarget.focus({preventScroll:true});askName();});
+$('result-join').addEventListener('click',event=>{event.currentTarget.focus({preventScroll:true});askName();});
+$('player-chip').addEventListener('click',event=>{event.currentTarget.focus({preventScroll:true});openAccount();});
 $('help-btn').addEventListener('click',()=>comfortPanel.open({mode:'classic'}));
 $('cancel-restart').addEventListener('click',()=>showModal(restartModal,false));
 $('confirm-restart').addEventListener('click',restartNow);

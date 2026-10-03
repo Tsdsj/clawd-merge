@@ -1038,8 +1038,10 @@ export function createChallengeUI({
   $("practice").onclick = () => newPractice();
   $("resume-btn").onclick = () => void resume();
   $("formal").onclick = () => void prepareFormal();
-  $("identity").onclick = () =>
+  $("identity").onclick = event => {
+    event.currentTarget.focus({preventScroll:true});
     getPlayer() ? requestAccount() : requestIdentity();
+  };
   $("rank").onclick = () => void openRank();
   $("pending").onclick = openQueue;
   $("retry").onclick = () => {

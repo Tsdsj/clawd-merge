@@ -26,7 +26,7 @@ export class AccountClient {
   storedIntent(){try{return JSON.parse(this.storage?.getItem(this.key)||'null');}catch{return null;}}
   persist(intent){
     const existing=this.storedIntent();
-    if(existing&&existing.requestId!==intent.requestId)error('identity_changed','其他页面已有新的账号操作，请重新打开账号面板');
+    if(existing&&existing.requestId!==intent.requestId){if(!this.intent)this.load();error('identity_changed','其他页面已有新的账号操作，请重新打开账号面板');}
     const data={schemaVersion:1,action:intent.action,fields:intent.fields,requestId:intent.requestId,retrySecret:intent.retrySecret,
       operationTicket:intent.operationTicket??null,expiresAt:intent.expiresAt??null,loginHandle:intent.loginHandle??null,
       actorId:intent.actorId,actorHash:intent.actorHash,submitted:Boolean(intent.submitted)};
@@ -49,7 +49,7 @@ export class AccountClient {
     if(!this.serverClock)error('offline','暂时无法确认账号服务时间，请重新打开账号面板');
     const {result,snapshot}=await this.guarded(async snapshot=>{
       const hash=await fingerprint(snapshot.token);
-      if(!this.intent){this.intent={schemaVersion:1,action,fields:selected,requestId:newIntentId(Math.floor(this.serverClock.now+performance.now()-this.serverClock.at-1000)),retrySecret:secret(),actorId:snapshot.id??null,actorHash:hash,submitted:false,loginHandle:this.identity.player?.account?.loginHandle||selected.loginHandle||null};this.persist(this.intent);}
+      if(!this.intent){const next={schemaVersion:1,action,fields:selected,requestId:newIntentId(Math.floor(this.serverClock.now+performance.now()-this.serverClock.at-1000)),retrySecret:secret(),actorId:snapshot.id??null,actorHash:hash,submitted:false,loginHandle:this.identity.player?.account?.loginHandle||selected.loginHandle||null};this.persist(next);this.intent=next;}
       const i=this.intent;
       if(i.actorId!==(snapshot.id??null)||i.actorHash!==hash)error('identity_changed','账号已变化，请先处理原操作');
       const data=await this.request('/api/auth/operations',{method:'POST',token:action==='register'||(action==='recover_password'&&selected.recoveryMethod!=='linuxdo')?undefined:snapshot.token,body:{action,...selected,requestId:i.requestId,retrySecret:i.retrySecret}});
@@ -96,7 +96,7 @@ export class AccountClient {
     const i=this.intent;if(!i)return {kind:'cancelled'};if(!i.operationTicket)await this.prepare(i.action,i.fields);
     const {result,snapshot}=await this.guarded(()=>this.request('/api/auth/operations/cancel',{method:'POST',body:proof(i)}));
     try{if(result.kind==='completed'){if(snapshot.id&&i.actorId!==snapshot.id)error('identity_changed','原操作已经完成，请用完整账号登录');await this.adopt(result.result,snapshot,i);return result;}
-      if(result.kind!=='cancelled')error('bad_response','未确认取消结果');this.clear();return result;
+      if(result.kind!=='cancelled')error('bad_response','未确认取消结果');try{this.clear();}catch(err){err.operationCancelled=true;throw err;}return result;
     }finally{this.identity.endAccountRequest(snapshot);}
   }
   async login(loginHandle,password){
@@ -115,5 +115,15 @@ export class AccountClient {
   }
   async features(){try{const result=await this.request('/api/auth/capabilities');if(Number.isSafeInteger(result.serverNow))this.serverClock={now:result.serverNow,at:performance.now()};if(!globalThis.crypto?.subtle||!crypto.randomUUID){result.passwordEnabled=false;result.registrationEnabled=false;result.oauthAccountActions=false;}return result;}catch{return {passwordEnabled:false,registrationEnabled:false,linuxdoEnabled:true};}}
   cancel(){this.generation++;this.identity.cancelIdentityRequests();}
-  clear(){const id=this.intent?.requestId;try{const stored=this.storedIntent();if(!stored||stored.requestId===id)this.storage?.removeItem(this.key);}catch{}this.intent=null;this.intentDurable=false;this.intentError=false;this.lastResult=null;}
+  clear(){
+    const id=this.intent?.requestId;
+    try{
+      const storage=this.storage,stored=this.storedIntent();
+      if((stored&&stored.requestId===id)||(!stored&&(this.intentDurable||this.intentError))){
+        if(!storage)throw Error('unavailable');storage.removeItem(this.key);
+        if(storage.getItem(this.key)!==null)throw Error('not removed');
+      }
+    }catch{error('local_cleanup_failed','浏览器暂时不能结束这份账号操作。请重试，原操作与结果仍保留。');}
+    this.intent=null;this.intentDurable=false;this.intentError=false;this.lastResult=null;
+  }
 }

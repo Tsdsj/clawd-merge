@@ -207,3 +207,22 @@ test('A04 key rotation retains old protected receipts during TTL and signs new i
  const second=await f.register('新密钥测试');assert.notEqual(second.player.id,registered.player.id);
  assert.equal(f.DB.raw.prepare('SELECT key_version FROM auth_operations WHERE request_id=?').get(second.proof.requestId).key_version,'v2');
 });
+
+test('A06 unsupported credential parameter versions cannot be overwritten through old-password change',async t=>{
+ const f=await fixture(t),registered=await f.register();
+ f.DB.raw.prepare('UPDATE password_credentials SET params_version=2 WHERE player_id=?').run(registered.player.id);
+ assert.equal((await f.call('/api/auth/password/login',{loginHandle:registered.account.loginHandle,password:PASSWORD})).status,401);
+ const op=await f.prepare('change_password',{},registered.token);
+ const response=await f.call('/api/account/password',{...op,operation:'change',oldPassword:PASSWORD,newPassword:PASSWORD+' changed'},registered.token);
+ assert.equal(response.status,401,'unsupported credential version must fail closed');assert.equal(response.data.error,'invalid_credentials');
+ assert.equal(f.DB.raw.prepare('SELECT params_version FROM password_credentials WHERE player_id=?').get(registered.player.id).params_version,2);
+});
+
+test('A06 a credential parameter change during KDF prevents an old-format login result',async t=>{
+ const {createPasswordKdf}=await kdfModule,native=createPasswordKdf();let armed=false,release,started;
+ const began=new Promise(r=>started=r),hold=new Promise(r=>release=r);
+ const f=await fixture(t,{kdf:async(...args)=>{if(armed){armed=false;started();await hold;}return native(...args);}}),registered=await f.register();
+ armed=true;const login=f.call('/api/auth/password/login',{loginHandle:registered.account.loginHandle,password:PASSWORD});await began;
+ f.DB.raw.prepare('UPDATE password_credentials SET params_version=2 WHERE player_id=?').run(registered.player.id);release();
+ assert.equal((await login).status,401);assert.equal(f.DB.raw.prepare('SELECT count(*) n FROM tokens').get().n,1);
+});

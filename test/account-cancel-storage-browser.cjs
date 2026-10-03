@@ -1,0 +1,10 @@
+// Continue after account-acceptance-browser.cjs on the same isolated fixture.
+async page => {
+ if(!await page.evaluate(()=>location.hostname==='127.0.0.1'))throw Error('isolated loopback fixture only');
+ await page.reload();await page.getByRole('heading',{name:'继续上一局？'}).waitFor();await page.locator('#restore-close').click();await page.locator('#daily-open').click();await page.locator('#daily-identity').click();await page.getByRole('heading',{name:'我的账号',exact:true}).waitFor();
+ await page.locator('[data-action="change"]').click();await page.locator('#auth-old').fill('Wrong-password-fixture-2026');await page.locator('#auth-pass').fill('Acceptance-retry-password-2026');await page.locator('#auth-confirm').fill('Acceptance-retry-password-2026');
+ await page.evaluate(()=>{const original=Storage.prototype.removeItem;let fail=true;Storage.prototype.removeItem=function(key){if(fail&&key.endsWith(':account-intent')){fail=false;throw new DOMException('isolated transient failure','QuotaExceededError');}return original.call(this,key);};window.__a06RestoreStorage=()=>{Storage.prototype.removeItem=original;delete window.__a06RestoreStorage;};});
+ await page.getByRole('button',{name:'确认修改密码'}).click();await page.getByRole('heading',{name:'结束本次操作'}).waitFor();await page.getByRole('button',{name:'重试结束操作'}).click();await page.getByRole('heading',{name:'我的账号',exact:true}).waitFor();await page.evaluate(()=>window.__a06RestoreStorage());
+ await page.locator('[data-action="change"]').click();await page.locator('#auth-old').fill('Acceptance-password-2026');await page.locator('#auth-pass').fill('Acceptance-retry-password-2026');await page.locator('#auth-confirm').fill('Acceptance-retry-password-2026');await page.getByRole('button',{name:'确认修改密码'}).click();await page.getByRole('heading',{name:'操作已完成'}).waitFor();await page.getByRole('button',{name:'继续玩',exact:true}).click();await page.locator('#auth-modal').waitFor({state:'hidden'});
+ return {passed:'invalid password cancellation plus transient storage deletion failure can be retried; a fresh password operation succeeds afterward'};
+}
