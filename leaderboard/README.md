@@ -1,6 +1,19 @@
+# API 与账号服务
+
+当前采用 Node + SQLite 自托管，支持游客、密码、Linux.do、双登录方式四种身份。密码与新绑定按发布门禁开放；完整协议见 [账号契约](../docs/design/account-contract.md)，上线与回退见 [A07 清单](../docs/verification/a07-release-preparation.md)。
+
+- `PASSWORD_AUTH_ENABLED`：原生密码服务总开关，由密码 Compose overlay 开启；已有密码账号后保持启用。
+- `PASSWORD_REGISTRATION_ENABLED=0`：暂停密码注册/首次设密，保留已有密码登录、改密与恢复。
+- `ACCOUNT_BINDING_ENABLED=0`：暂停新绑定（含 legacy 游客绑定），保留已有登录方式和近期验证。
+- 密钥和实例配置只放私有环境；普通功能回退不覆盖数据库、不退回不识别密码凭据的后端。
+
+## 旧 Worker/D1 参考
+
+以下为旧运行时资料，不是当前密码账号的部署入口；新密码功能只在原生服务实现。
+
 > 当前默认部署方式为 [Docker Compose 自托管](../deploy/README.md)。以下 Cloudflare 说明保留为旧运行时兼容参考；真实 Worker/D1/OAuth 配置不写入仓库模板。
 
-# 合成大Clawd 排行榜（Cloudflare Workers + D1）
+### 历史排行榜（Cloudflare Workers + D1）
 
 一个零依赖的 Cloudflare Worker，数据存在 D1（SQLite）。前端仍然托管在 GitHub Pages，跨域调用这个 API。
 

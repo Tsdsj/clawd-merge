@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {execFileSync} from 'node:child_process';
 import {resolve} from 'node:path';
+import {checkReleaseConfig} from '../scripts/check-release-compose.mjs';
 const root=resolve(import.meta.dirname,'..');
 const env={...process.env,PUBLIC_HOST:'game.example.invalid',PUBLIC_ORIGIN:'https://game.example.invalid',ALLOWED_ORIGINS:'https://game.example.invalid',LINUXDO_CLIENT_ID:'fixture',COMPOSE_FILE:'',COMPOSE_PROFILES:''};
 function config(files){return JSON.parse(execFileSync('docker',['compose','--env-file','/dev/null',...files.flatMap(file=>['-f',resolve(root,'deploy',file)]),'config','--format','json'],{env,encoding:'utf8'}));}
@@ -16,4 +17,11 @@ test('standalone configuration remains usable and password overlay composes with
  const base=config(['compose.yaml']);assert.ok(base.services.certbot);assert.deepEqual(base.services.web.ports.map(p=>p.published),['80','443']);
  const d=config(['compose.yaml','compose.proxied.yaml','compose.password.yaml']);
  assert.equal(d.services.api.environment.PASSWORD_AUTH_ENABLED,'1');assert.equal(d.services.web.ports.length,1);assert.equal(d.services.web.ports[0].host_ip,'127.0.0.1');assert.equal(d.services.certbot,undefined);
+});
+
+test('A07 resolved release config starts with closed enrollment and requires the proxy overlay',()=>{
+ const proxied=config(['compose.yaml','compose.proxied.yaml','compose.password.yaml']);
+ assert.deepEqual(checkReleaseConfig(proxied,{expectedImage:proxied.services.api.image,requirePasswordAuth:true}),[]);
+ assert.equal(proxied.services.api.environment.PASSWORD_REGISTRATION_ENABLED,'0');assert.equal(proxied.services.api.environment.ACCOUNT_BINDING_ENABLED,'0');
+ assert.ok(checkReleaseConfig(config(['compose.yaml','compose.password.yaml']),{expectedImage:proxied.services.api.image,requirePasswordAuth:true}).includes('web_must_use_one_loopback_port'));
 });

@@ -18,7 +18,11 @@
     "ops:report": "node leaderboard/ops/run.mjs",
     "check:names": "node scripts/build-name-policy.mjs --check",
     "ops:names": "node leaderboard/ops/name-audit.mjs",
-    "test:deploy": "node --test test/proxied-deploy.integration.mjs"
+    "test:deploy": "node --test test/proxied-deploy.integration.mjs",
+    "release:check": "node scripts/check-release-compose.mjs",
+    "release:rehearse": "node scripts/rehearse-account-release.mjs",
+    "release:prepare": "node scripts/prepare-account-release.mjs",
+    "release:probe": "node scripts/probes/password-release.mjs"
   },
   "engines": {
     "node": ">=22.13"

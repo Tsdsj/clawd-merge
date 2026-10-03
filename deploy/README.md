@@ -4,6 +4,8 @@
 
 仓库只提供通用代码与模板。实际主机、域名、账号、密钥、备份、巡检截图和运行参数在私有部署目录中管理，不加入Git，也不放进公开构建上下文。`leaderboard/wrangler.toml` 只保留旧运行时的开发模板。
 
+账号版本发布使用 [A07 发布与回退清单](../docs/verification/a07-release-preparation.md)。密码服务、密码注册/首次设密、新绑定分别控制；已有密码账号后，不能关闭整个服务来回退。
+
 ## 文件与权限
 
 - `compose.yaml`：服务、重启策略、日志轮转、资源上限与数据挂载。
@@ -40,7 +42,7 @@
    ```
 
    build、up、ps、logs、exec、run 都沿用同一组合；禁止在 Caddy 模式下只传 `-f compose.yaml`。通过检查和发布审批后，才对已核定版本执行更新。
-4. 账号功能开放另有发布门禁。批准后追加 `compose.password.yaml` 时，必须保留 proxied 文件：`-f compose.yaml -f compose.proxied.yaml -f compose.password.yaml`。不能用 password overlay 替换反代 overlay。
+4. 账号功能开放另有发布门禁，注册/设密和绑定开关默认关闭。批准后追加 `compose.password.yaml` 时，必须保留 proxied 文件：`-f compose.yaml -f compose.proxied.yaml -f compose.password.yaml`。不能用 password overlay 替换反代 overlay。
 5. 不修改现有 Caddy 站点、宿主防火墙、Docker live-restore 或 SSH 设置。已有证书目录保留作回退材料；回退应用版本时继续使用 proxied 组合，不能直接抢回 80/443。
 
 反代信任边界：宿主代理必须覆盖 `X-Real-IP`；若前面有 CDN，只信任从已核实 CDN 地址发来的客户端 IP 信息。Nginx 模板信任 loopback 和默认 Docker 私网范围 `172.16.0.0/12`，不会把任意公网来源声明的头直接当作客户端地址；自定义 Docker 网段需在私有配置中核对。此配置依赖宿主本地端口及容器网络隔离，不应让不可信容器加入 clawd 网络。不要把 8080 改成 `0.0.0.0`，也不要额外信任所有来源。

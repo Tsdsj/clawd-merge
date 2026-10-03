@@ -47,12 +47,13 @@ async function bodyOf(request,fail) {
   return body;
 }
 
-export function createPasswordAuth({DB,keyring,kdf,enabled=false}) {
+export function createPasswordAuth({DB,keyring,kdf,enabled=false,registrationEnabled=true,bindingEnabled=true}) {
  const ring=parseKeyring(keyring),available=Boolean(enabled&&ring&&typeof kdf==='function'&&typeof DB.transaction==='function');
  const dummySalt=Buffer.alloc(16,79).toString('base64url');
- return {available,async handle(request,env,h){
+ return {available,registrationEnabled:Boolean(available&&registrationEnabled),bindingEnabled:Boolean(available&&bindingEnabled),async handle(request,env,h){
   const fail=(status,code,message)=>{throw new h.ApiError(status,code,message);};
   const invalid=()=>fail(401,'invalid_credentials','账号或凭据不正确，请检查后再试');
+  const enrollmentGate=action=>{if(['register','set_password'].includes(action)&&!registrationEnabled)fail(503,'registration_disabled','新注册和设置密码暂时关闭；已有账号仍可登录和找回');};
   if(!available)fail(503,'password_auth_disabled','密码服务暂不可用，请稍后再试');
   const path=new URL(request.url).pathname;
   const body=request.method==='GET'?{}:await bodyOf(request,fail),now=()=>Date.now(),ip=request.headers.get('CF-Connecting-IP')||'unknown';
@@ -75,7 +76,7 @@ export function createPasswordAuth({DB,keyring,kdf,enabled=false}) {
   function credential(db,handle){return db.prepare(`SELECT c.*,p.auth_version FROM password_credentials c JOIN players p ON p.id=c.player_id WHERE c.login_handle_key=?`).get(handle);}
   const supportedCredential=c=>c?.algorithm==='scrypt'&&c.params_version===1;
   function currentCredential(db,old){const c=credential(db,old.login_handle_key);return c&&c.player_id===old.player_id&&c.auth_version===old.auth_version&&c.algorithm===old.algorithm&&c.params_version===old.params_version&&c.derived_key===old.derived_key&&c.salt===old.salt;}
-  function view(db,id){const p=db.prepare(`SELECT p.*, c.player_id AS credential_player_id,c.login_handle FROM players p LEFT JOIN password_credentials c ON c.player_id=p.id WHERE p.id=?`).get(id);if(!p)fail(409,'identity_changed','账号已变化，请重新登录');const recovery=db.prepare('SELECT 1 FROM recovery_codes WHERE player_id=?').get(id);return {kind:'authenticated',player:h.publicPlayer(p),...accountState(p,recovery,{passwordEnabled:available,linuxdoEnabled:Boolean(env.LINUXDO_CLIENT_ID&&env.LINUXDO_CLIENT_SECRET),namingEnabled:Boolean(NAME_POLICY_VERSION)})};}
+  function view(db,id){const p=db.prepare(`SELECT p.*, c.player_id AS credential_player_id,c.login_handle FROM players p LEFT JOIN password_credentials c ON c.player_id=p.id WHERE p.id=?`).get(id);if(!p)fail(409,'identity_changed','账号已变化，请重新登录');const recovery=db.prepare('SELECT 1 FROM recovery_codes WHERE player_id=?').get(id);return {kind:'authenticated',player:h.publicPlayer(p),...accountState(p,recovery,{passwordEnabled:available,registrationEnabled:available&&registrationEnabled,bindingEnabled:bindingEnabled&&env.ACCOUNT_BINDING_ENABLED!=='0',linuxdoEnabled:Boolean(env.LINUXDO_CLIENT_ID&&env.LINUXDO_CLIENT_SECRET),namingEnabled:Boolean(NAME_POLICY_VERSION)})};}
   function issueToken(db,id,method){const p=db.prepare('SELECT auth_version FROM players WHERE id=?').get(id);const value=random(),expiresAt=now()+SESSION_TTL;db.prepare('INSERT INTO tokens(token_hash,player_id,created_at,auth_method,auth_version,authenticated_at,expires_at) VALUES(?,?,?,?,?,?,?)').run(sha(value),id,now(),method,p.auth_version,now(),expiresAt);const data=view(db,id);delete data.sessionExpiresAt;return {...data,token:value,expiresAt};}
   function recoveryCode(db,id){const code=random();db.prepare('INSERT INTO recovery_codes(player_id,code_hash,version,created_at) VALUES(?,?,1,?) ON CONFLICT(player_id) DO UPDATE SET code_hash=excluded.code_hash,version=recovery_codes.version+1,created_at=excluded.created_at').run(id,sha(code),now());return code;}
   function revoke(db,id){db.prepare('UPDATE players SET auth_version=auth_version+1 WHERE id=?').run(id);db.prepare('DELETE FROM tokens WHERE player_id=?').run(id);db.prepare('DELETE FROM reauth_grants WHERE player_id=?').run(id);db.prepare("UPDATE auth_operations SET status='stale' WHERE actor_player_id=? AND status!='complete'").run(id);db.prepare('DELETE FROM oauth_states WHERE source_player_id=? OR merge_player_id=?').run(id,id);db.prepare('DELETE FROM login_codes WHERE player_id=?').run(id);}
@@ -123,7 +124,7 @@ export function createPasswordAuth({DB,keyring,kdf,enabled=false}) {
     return p;
   }
   function grant(db,op,purpose,consume=false){if(!secret(body.reauthProof))fail(403,'reauth_required','请先重新验证当前账号');const row=db.prepare('SELECT * FROM reauth_grants WHERE grant_hash=?').get(sha(body.reauthProof));if(!row||row.player_id!==op.actor_player_id||row.token_hash!==op.actor_token_hash||row.auth_version!==op.actor_auth_version||row.purpose!==purpose||row.expires_at<=now())fail(403,'invalid_reauth','验证已失效，请重新验证');if(consume)db.prepare('DELETE FROM reauth_grants WHERE grant_hash=?').run(row.grant_hash);}
-  if(['/api/auth/linuxdo/start','/api/auth/linuxdo/callback','/api/auth/exchange'].includes(path))return oauthAccountRoute({request,env,h,path,body,DB,raw,tx,ring,now,ip,fail,json,actor,actorOf,proof,resultOf,complete,issueToken,grant,rate,readOp,sha,mac,same,secret,random,revoke});
+  if(['/api/auth/linuxdo/start','/api/auth/linuxdo/callback','/api/auth/exchange'].includes(path))return oauthAccountRoute({request,env,h,path,body,DB,raw,tx,ring,now,ip,fail,json,actor,actorOf,proof,resultOf,complete,issueToken,grant,rate,readOp,sha,mac,same,secret,random,revoke,bindingEnabled});
   const proofFields=['requestId','retrySecret','operationTicket'];
   const fields={
     '/api/auth/operations':['action','requestId','retrySecret',...(['register','set_password'].includes(body.action)?['name']:body.action==='recover_password'?['loginHandle','recoveryMethod']:body.action==='exchange_login'?['oauthAction','purpose','clientNonce']:[])],
@@ -154,6 +155,8 @@ export function createPasswordAuth({DB,keyring,kdf,enabled=false}) {
     const value=tx(db=>{
       const old=db.prepare('SELECT * FROM auth_operations WHERE request_id=?').get(body.requestId);
       if(old){if(old.expires_at<=now())fail(410,'operation_expired','操作已过期，请重新开始');const key=ring.versions.get(old.key_version);if(!key||old.action!==body.action||!same(old.retry_secret_hash,sha(body.retrySecret))||old.actor_token_hash!==tokenHash||!same(old.preparation_hmac,mac(key.payload,prep)))fail(409,'operation_conflict','这个操作记录已用于其他请求');if(old.status==='stale')fail(409,'operation_stale','操作已失效');return {operationTicket:old.operation_ticket,expiresAt:old.expires_at,...(old.login_handle?{loginHandle:old.login_handle}:{})};}
+      enrollmentGate(body.action);
+      if(oauth&&body.oauthAction==='bind'&&(!bindingEnabled||env.ACCOUNT_BINDING_ENABLED==='0'))fail(503,'binding_disabled','新绑定暂时关闭；已有登录方式仍可使用');
       const p=(body.action==='register'||(body.action==='recover_password'&&!oauthRecovery)||(oauth&&body.oauthAction==='login'))?null:actor(db);
       if(oauthRecovery&&(!p.credential_player_id||p.linuxdo_id==null||loginHandleKey(p.login_handle)!==handle))fail(403,'reauth_required','请先登录已绑定的账号再验证恢复');
       if(oauth&&body.oauthAction==='login'&&tokenHash)fail(409,'identity_changed','请先退出当前账号再登录其他账号');
@@ -206,7 +209,7 @@ export function createPasswordAuth({DB,keyring,kdf,enabled=false}) {
   else if(action==='recover_password'){requirePassword(body.newPassword);if(path==='/api/account/password'){if(op.recovery_method!=='linuxdo')fail(403,'reauth_required','请通过已绑定的 Linux.do 重新验证');if(!secret(body.reauthProof))fail(403,'reauth_required','请通过已绑定的 Linux.do 重新验证');payload=[action,'linuxdo',body.reauthProof,body.newPassword];}else{if(op.recovery_method==='linuxdo')fail(409,'operation_conflict','恢复方式不匹配');fullHandle(body.loginHandle);if(!secret(body.recoveryCode))invalid();payload=[action,fullHandle(body.loginHandle),body.recoveryCode,body.newPassword];}}
   else payload=[action,body.reauthProof??null];
   const digest=mac(ring.versions.get(op.key_version).payload,JSON.stringify(payload));
-  const cached=tx(db=>{const current=db.prepare('SELECT * FROM auth_operations WHERE request_id=?').get(op.request_id);if(current.payload_hmac&&!same(current.payload_hmac,digest))fail(409,'operation_conflict','这次操作的内容已变化，请重新开始');const ready=resultOf(db,current);if(ready)return {data:ready,status:current.result_status};actorOf(db,current);db.prepare('UPDATE auth_operations SET payload_hmac=? WHERE request_id=?').run(digest,current.request_id);return null;});if(cached)return json(cached.data,cached.status);
+  const cached=tx(db=>{const current=db.prepare('SELECT * FROM auth_operations WHERE request_id=?').get(op.request_id);if(current.payload_hmac&&!same(current.payload_hmac,digest))fail(409,'operation_conflict','这次操作的内容已变化，请重新开始');const ready=resultOf(db,current);if(ready)return {data:ready,status:current.result_status};actorOf(db,current);enrollmentGate(action);db.prepare('UPDATE auth_operations SET payload_hmac=? WHERE request_id=?').run(digest,current.request_id);return null;});if(cached)return json(cached.data,cached.status);
   const recheckName=()=>{if(['register','set_password'].includes(action)){const policy=checkName(op.login_name,{blockedWords:env.BLOCKED_WORDS});if(!policy.ok)fail(policy.status,policy.error,'名字已不符合当前规则，请取消这次登记后重新选择名字');}};
   recheckName();
   let saved=null,rec=null,salt=null,derived=null;
@@ -223,7 +226,7 @@ export function createPasswordAuth({DB,keyring,kdf,enabled=false}) {
   else{salt=randomBytes(16).toString('base64url');derived=await derive(['register','set_password'].includes(action)?body.password:body.newPassword,salt);}
   const completed=tx(db=>{
     const current=db.prepare('SELECT * FROM auth_operations WHERE request_id=?').get(op.request_id);if(current.expires_at<=now())fail(410,'operation_expired','操作已过期，请重新开始');const ready=resultOf(db,current);if(ready)return {data:ready,status:current.result_status};
-    if(!same(current.payload_hmac,digest))fail(409,'operation_conflict','操作内容不匹配');recheckName();let p=actorOf(db,current),id=p?.id;
+    if(!same(current.payload_hmac,digest))fail(409,'operation_conflict','操作内容不匹配');enrollmentGate(action);recheckName();let p=actorOf(db,current),id=p?.id;
     if(['change_password','recover_password'].includes(action)){if(!currentCredential(db,saved))fail(409,'operation_stale','账号凭据已变化，请重新登录');id=saved.player_id;}
     if(action==='recover_password'&&current.recovery_method==='linuxdo')grant(db,current,'recover_password',true);
     if(action==='recover_password'&&current.recovery_method!=='linuxdo'){const latest=db.prepare('SELECT * FROM recovery_codes WHERE player_id=?').get(id);if(!latest||latest.version!==rec.version||!same(latest.code_hash,rec.code_hash))fail(409,'operation_stale','恢复码已变化，请使用新的恢复方式');}

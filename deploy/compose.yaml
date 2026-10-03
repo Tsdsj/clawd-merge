@@ -13,6 +13,7 @@ services:
       dockerfile: deploy/Dockerfile
       args:
         NODE_IMAGE: ${NODE_IMAGE:-node:24.21.0-bookworm-slim}
+        SOURCE_REVISION: ${CLAWD_RELEASE:-local}
     restart: unless-stopped
     init: true
     read_only: true
@@ -27,6 +28,7 @@ services:
       PUBLIC_ORIGIN: ${PUBLIC_ORIGIN:?Set the public HTTPS origin}
       ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:?Set allowed browser origins}
       TRUST_PROXY: '1'
+      ACCOUNT_BINDING_ENABLED: ${ACCOUNT_BINDING_ENABLED:-0}
       DB_FILE: /data/clawd.sqlite
       LINUXDO_CLIENT_ID: ${LINUXDO_CLIENT_ID:?Set the existing client ID}
       LINUXDO_CLIENT_SECRET_FILE: /run/secrets/linuxdo_client_secret

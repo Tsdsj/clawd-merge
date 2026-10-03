@@ -16,6 +16,7 @@ const env = {
   GAME_URL: process.env.GAME_URL || `${process.env.PUBLIC_ORIGIN}/`,
   ALLOWED_ORIGINS: process.env.ALLOWED_ORIGINS || process.env.PUBLIC_ORIGIN,
   TRUST_PROXY: process.env.TRUST_PROXY || '0',
+  ACCOUNT_BINDING_ENABLED: process.env.ACCOUNT_BINDING_ENABLED==='1'?'1':'0',
   LINUXDO_CLIENT_ID: process.env.LINUXDO_CLIENT_ID,
   LINUXDO_CLIENT_SECRET: secret,
   LINUXDO_MIN_TRUST_LEVEL: process.env.LINUXDO_MIN_TRUST_LEVEL || '0',

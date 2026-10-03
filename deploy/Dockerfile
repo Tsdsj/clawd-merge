@@ -1,5 +1,7 @@
 ARG NODE_IMAGE=node:24.21.0-bookworm-slim
 FROM ${NODE_IMAGE}
+ARG SOURCE_REVISION=local
+LABEL org.opencontainers.image.revision=${SOURCE_REVISION}
 WORKDIR /app
 COPY package.json ./
 COPY server ./server

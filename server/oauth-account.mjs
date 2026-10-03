@@ -5,7 +5,7 @@ import {AUTH_QUERY,sessionCurrent} from '../leaderboard/src/account-state.js';
 import {mergeChallengeStatements} from '../leaderboard/src/challenges.js';
 const DAY=86400000,CODE_TTL=120000,GRANT_TTL=300000;
 export async function oauthAccountRoute(c){
- const {request,env,h,path,body,DB,raw,tx,ring,now,fail,json,actorOf,proof,resultOf,complete,issueToken,grant,readOp,sha,mac,same,secret,random,revoke}=c;
+ const {request,env,h,path,body,DB,raw,tx,ring,now,fail,json,actorOf,proof,resultOf,complete,issueToken,grant,readOp,sha,mac,same,secret,random,revoke,bindingEnabled}=c;
  const fields=path.endsWith('/start')?['requestId','retrySecret','operationTicket','action','purpose','clientNonce','returnTo','reauthProof']:['requestId','retrySecret','operationTicket','code','clientNonce'];
  if(request.method!=='GET'&&Object.keys(body).some(key=>!fields.includes(key)))fail(400,'bad_request','授权请求字段不正确');
  function source(db,op){
@@ -28,6 +28,7 @@ export async function oauthAccountRoute(c){
  }
  if(path.endsWith('/start')){
   const op=proof();if(op.action!=='exchange_login'||op.oauth_action!==body.action||(op.oauth_purpose||null)!==(body.purpose||null))fail(409,'operation_conflict','授权用途与准备信息不一致');matchNonce(op);
+  if(op.oauth_action==='bind'&&(!bindingEnabled||env.ACCOUNT_BINDING_ENABLED==='0'))fail(503,'binding_disabled','新绑定暂时关闭；已有登录方式仍可使用');
   const returnTo=h.checkReturnTo(body.returnTo);
   const data=tx(db=>{
    const current=currentOp(op.request_id);const p=actorOf(db,current);if(current.status==='complete')fail(409,'operation_stale','这次授权已经完成，请查看原结果');
@@ -88,6 +89,7 @@ export async function oauthAccountRoute(c){
   const current=currentOp(op.request_id);
   if(current.payload_hmac&&!same(current.payload_hmac,digest))fail(409,'operation_conflict','兑换凭据与原请求不一致');
   const cached=resultOf(db,current);if(cached)return {data:cached,status:current.result_status};
+  if(current.oauth_action==='bind'&&(!bindingEnabled||env.ACCOUNT_BINDING_ENABLED==='0'))fail(503,'binding_disabled','新绑定暂时关闭；已有登录方式仍可使用');
   const p=actorOf(db,current),flow=flowFor(current);
   if(!flow||flow.status!=='authorized'||flow.login_code_expires_at<=now()||!same(flow.login_code_hash,sha(body.code)))fail(400,'bad_login_code','登录已过期或尚未完成授权');
   const {user}=open(current,'authorization',flow.authorization_cipher,flow.authorization_nonce);

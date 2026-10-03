@@ -153,3 +153,13 @@ test('A05 provider cancellation after authorization stops an unexchanged flow bu
  const repeat=await f.call('/api/auth/linuxdo/callback?state='+state2+'&error=access_denied');assert.equal(new URLSearchParams(new URL(repeat.headers.get('Location')).hash.slice(1)).get('login'),b.code);
  assert.equal((await f.exchange(second,b.code)).data.token,signed.data.token);
 });
+
+test('A07 binding gate blocks modern exchange and legacy guest entry without disabling ordinary login',async t=>{
+ const f=fixture(t),guest=(await f.call('/api/register',{name:'绑定暂停'})).data,flow=await f.oauth('bind',guest.token),back=await f.callback(flow);
+ f.env.ACCOUNT_BINDING_ENABLED='0';
+ assert.equal((await f.exchange(flow,back.code)).data.error,'binding_disabled');
+ assert.equal((await f.call('/api/auth/linuxdo/start',{returnTo:'https://game.example.test/'},guest.token)).data.error,'binding_disabled');
+ assert.equal((await f.call('/api/auth/linuxdo/start',{returnTo:'https://game.example.test/'})).status,200);
+ assert.equal((await f.call('/api/me',undefined,guest.token)).data.capabilities.canBindLinuxdo,false);
+ assert.equal(f.DB.raw.prepare('SELECT linuxdo_id FROM players WHERE id=?').get(guest.player.id).linuxdo_id,null);
+});

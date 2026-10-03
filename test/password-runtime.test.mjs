@@ -16,3 +16,10 @@ test('password service fails closed when disabled, missing keys or invalid concu
  assert.equal(configurePasswordAuth(null,{PASSWORD_AUTH_ENABLED:'1'}).available,false);
  assert.equal(configurePasswordAuth(null,{PASSWORD_AUTH_ENABLED:'1',PASSWORD_AUTH_KEYRING_FILE:'/missing-fixture-keyring'}).available,false);
 });
+
+test('A07 production password service defaults to closed enrollment while preserving login capability',async t=>{
+ const {mkdtempSync,writeFileSync,rmSync}=await import('node:fs'),{tmpdir}=await import('node:os'),{join}=await import('node:path'),{openDatabase}=await import('../server/sqlite.mjs');
+ const dir=mkdtempSync(join(tmpdir(),'clawd-keyring-'));t.after(()=>rmSync(dir,{recursive:true,force:true}));const file=join(dir,'keys.json'),s=()=>randomBytes(32).toString('base64url');writeFileSync(file,JSON.stringify({current:'v1',rate:s(),versions:{v1:{ticket:s(),receipt:s(),payload:s()}}}),{mode:0o600});const db=openDatabase(':memory:');t.after(()=>db.close());
+ const config={PASSWORD_AUTH_ENABLED:'1',PASSWORD_AUTH_KEYRING_FILE:file},closed=configurePasswordAuth(db,config);assert.equal(closed.available,true);assert.equal(closed.registrationEnabled,false);assert.equal(closed.bindingEnabled,false);
+ const opened=configurePasswordAuth(db,{...config,PASSWORD_REGISTRATION_ENABLED:'1',ACCOUNT_BINDING_ENABLED:'1'});assert.equal(opened.registrationEnabled,true);assert.equal(opened.bindingEnabled,true);
+});

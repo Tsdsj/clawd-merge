@@ -96,7 +96,7 @@ async function route(request, env) {
   }
   switch (key) {
     case 'GET /api/auth/capabilities':
-      return json({passwordEnabled:Boolean(env.PASSWORD_AUTH?.available),registrationEnabled:Boolean(env.PASSWORD_AUTH?.available&&NAME_POLICY_VERSION),linuxdoEnabled:Boolean(env.LINUXDO_CLIENT_ID&&env.LINUXDO_CLIENT_SECRET),oauthAccountActions:Boolean(env.PASSWORD_AUTH?.available&&env.LINUXDO_CLIENT_ID&&env.LINUXDO_CLIENT_SECRET),serverNow:Date.now()},200,{'Cache-Control':'no-store'});
+      return json({passwordEnabled:Boolean(env.PASSWORD_AUTH?.available),registrationEnabled:Boolean(env.PASSWORD_AUTH?.available&&env.PASSWORD_AUTH.registrationEnabled&&NAME_POLICY_VERSION),linuxdoEnabled:Boolean(env.LINUXDO_CLIENT_ID&&env.LINUXDO_CLIENT_SECRET),oauthAccountActions:Boolean(env.PASSWORD_AUTH?.available&&env.LINUXDO_CLIENT_ID&&env.LINUXDO_CLIENT_SECRET),serverNow:Date.now()},200,{'Cache-Control':'no-store'});
     case 'GET /api/health':
       return json({ ok: true });
     case 'POST /api/register':
@@ -191,7 +191,7 @@ async function me(request, env) {
   const player = await authenticate(request, env);
   const hasRecovery=await env.DB.prepare('SELECT 1 FROM recovery_codes WHERE player_id=?').bind(player.id).first();
   return json({
-    ...accountState(player,hasRecovery,{passwordEnabled:Boolean(env.PASSWORD_AUTH?.available),linuxdoEnabled:Boolean(env.LINUXDO_CLIENT_ID&&env.LINUXDO_CLIENT_SECRET),namingEnabled:Boolean(NAME_POLICY_VERSION)}),
+    ...accountState(player,hasRecovery,{passwordEnabled:Boolean(env.PASSWORD_AUTH?.available),registrationEnabled:Boolean(env.PASSWORD_AUTH?.registrationEnabled),bindingEnabled:bindingAllowed(env),linuxdoEnabled:Boolean(env.LINUXDO_CLIENT_ID&&env.LINUXDO_CLIENT_SECRET),namingEnabled:Boolean(NAME_POLICY_VERSION)}),
     player: publicPlayer(player, env),
     best: player.best_score,
     bestLevel: player.best_level,
@@ -201,6 +201,8 @@ async function me(request, env) {
 }
 
 // ---------- LINUX DO login (OAuth2 authorization code flow) ----------
+
+function bindingAllowed(env){return env.ACCOUNT_BINDING_ENABLED!=='0'&&(!env.PASSWORD_AUTH?.available||env.PASSWORD_AUTH.bindingEnabled!==false);}
 
 function accountOAuth(request,env) {
   if(!env.PASSWORD_AUTH?.available)throw new ApiError(503,'password_auth_disabled','账号服务暂不可用，请稍后再试');
@@ -220,6 +222,7 @@ async function linuxdoStart(request, env) {
   const safeReturn = checkReturnTo(returnTo, env);
   // A signed-in guest carries their token so their scores can be merged.
   const guest = request.headers.get('Authorization') ? await authenticate(request, env) : null;
+  if(guest&&guest.linuxdo_id==null&&!bindingAllowed(env))throw new ApiError(503,'binding_disabled','新绑定暂时关闭；已有登录方式仍可使用');
   if(guest?.credential_player_id)throw new ApiError(409,'credentials_exist','请使用账号面板的绑定入口；切换账号请先退出');
 
   const state = randomToken();
@@ -256,6 +259,7 @@ async function linuxdoCallback(request, env) {
   }
   const back = (params) => redirectWith(row.return_to, params);
 
+  if(row.merge_player_id&&!bindingAllowed(env))return back({login_error:'新绑定暂时关闭，请稍后再试'});
   const code = url.searchParams.get('code');
   if (!code) return back({ login_error: '你取消了 LINUX DO 授权' });
 
@@ -277,6 +281,7 @@ async function linuxdoCallback(request, env) {
       return source.linuxdo_id===Number(user.id)&&!await env.DB.prepare('SELECT id FROM players WHERE id=?').bind(row.source_player_id).first();
     };
     if(!await sourceValid())throw new ApiError(409,'identity_changed','账号已变化，请重新发起登录');
+    if(row.merge_player_id&&!bindingAllowed(env))throw new ApiError(503,'binding_disabled','新绑定暂时关闭，请稍后再试');
     const playerId = await upsertLinuxdoPlayer(env.DB, user, row.merge_player_id, row);
     if(!await sourceValid(playerId))throw new ApiError(409,'identity_changed','账号已变化，请重新发起登录');
     const version=(await env.DB.prepare('SELECT auth_version FROM players WHERE id=?').bind(playerId).first()).auth_version;
@@ -393,7 +398,7 @@ async function exchangeLoginCode(request, env) {
   const player=await env.DB.prepare(AUTH_QUERY).bind(tokenHash).first();
   if(!sessionCurrent(player))throw new ApiError(400,'bad_login_code','登录已过期，请重新登录');
   const hasRecovery=await env.DB.prepare('SELECT 1 FROM recovery_codes WHERE player_id=?').bind(player.id).first();
-  return json({player:publicPlayer(player,env),token,...accountState(player,hasRecovery,{passwordEnabled:Boolean(env.PASSWORD_AUTH?.available),linuxdoEnabled:true,namingEnabled:Boolean(NAME_POLICY_VERSION)})});
+  return json({player:publicPlayer(player,env),token,...accountState(player,hasRecovery,{passwordEnabled:Boolean(env.PASSWORD_AUTH?.available),registrationEnabled:Boolean(env.PASSWORD_AUTH?.registrationEnabled),bindingEnabled:bindingAllowed(env),linuxdoEnabled:true,namingEnabled:Boolean(NAME_POLICY_VERSION),registrationEnabled:Boolean(env.PASSWORD_AUTH?.registrationEnabled),bindingEnabled:bindingAllowed(env)})});
 }
 
 // ---------- game ----------

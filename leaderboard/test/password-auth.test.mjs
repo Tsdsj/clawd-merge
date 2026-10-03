@@ -226,3 +226,16 @@ test('A06 a credential parameter change during KDF prevents an old-format login 
  f.DB.raw.prepare('UPDATE password_credentials SET params_version=2 WHERE player_id=?').run(registered.player.id);release();
  assert.equal((await login).status,401);assert.equal(f.DB.raw.prepare('SELECT count(*) n FROM tokens').get().n,1);
 });
+
+test('A07 closing new password enrollment preserves existing login, recovery and completed receipts',async t=>{
+ const f=await fixture(t),registered=await f.register(),pending=await f.prepare('register',{name:'发布暂停'});
+ const {createPasswordAuth}=await authModule;f.env.PASSWORD_AUTH=createPasswordAuth({DB:f.DB,keyring:f.config,kdf:f.kdf,enabled:true,registrationEnabled:false,bindingEnabled:false});
+ const caps=(await f.call('/api/auth/capabilities')).data;assert.equal(caps.passwordEnabled,true);assert.equal(caps.registrationEnabled,false);
+ assert.equal((await f.call('/api/auth/password/register',{...pending,password:PASSWORD})).data.error,'registration_disabled');
+ assert.equal((await f.call('/api/auth/password/register',{...registered.proof,password:PASSWORD})).status,201);
+ assert.equal((await f.call('/api/auth/password/login',{loginHandle:registered.account.loginHandle,password:PASSWORD})).status,200);
+ const guest=(await f.call('/api/register',{name:'仍可游客'})).data;
+ assert.equal((await f.call('/api/me',undefined,guest.token)).data.capabilities.canSetPassword,false);
+ const recovery=await f.prepare('recover_password',{loginHandle:registered.account.loginHandle});
+ assert.equal((await f.call('/api/auth/password/recover',{...recovery,loginHandle:registered.account.loginHandle,recoveryCode:registered.recoveryCode,newPassword:PASSWORD+' restored'})).status,200);
+});
