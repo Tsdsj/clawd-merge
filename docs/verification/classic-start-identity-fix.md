@@ -17,4 +17,10 @@
 - test/player-identity.html 使用实际共享渲染器：经典/每日头像成功加载且均18px，长昵称320px无溢出，失败图像回退，重复刷新复用原图片节点。
 - 未代用户登录真实 LINUX DO，保留其现有身份与存档。已开始的本地局不会追溯上榜；新局按正常服务端签发结果决定资格。
 
-发布结果在完成后补记；无数据库迁移。
+## 发布完成
+
+- 修复提交 `fe5d00d`；[预发布 CI](https://github.com/Tsdsj/clawd-merge/actions/runs/37079822092)、[main CI](https://github.com/Tsdsj/clawd-merge/actions/runs/37080035922)、[Pages](https://github.com/Tsdsj/clawd-merge/actions/runs/37080035413)通过。
+- Worker 更新为 `e6890405-5f9d-4cea-a7c6-396ffb8640d2`，无数据库迁移或凭据变更。
+- 生产无凭据 POST 验证：无 body、空字符串与 `{}` 均返回预期401 unauthorized；非法 JSON 仍400 bad_request，挑战 mode 仍400 wrong_mode。没有使用用户 token 或创建生产测试身份。
+- 36 个线上入口/manifest/JS/CSS 文件与源码 SHA-256 一致。
+- 刷新后新开一局可重新申请上榜资格；既有本地局不追溯补交。
