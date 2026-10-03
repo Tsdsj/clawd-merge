@@ -20,6 +20,9 @@ jobs:
         with:
           node-version: '24.18.0'
       - run: npm test
+      - run: node --test leaderboard/test/api.test.mjs
+        env:
+          CLAWD_TEST_DATABASE: production-sqlite
       - run: npm run test:http
   d1:
     runs-on: ubuntu-24.04

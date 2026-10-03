@@ -3,6 +3,7 @@ import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import worker from '../src/index.js';
 import { createD1 } from './d1-mock.mjs';
+import { openDatabase } from '../../server/sqlite.mjs';
 
 const GAME = 'https://tsdsj.github.io/clawd-merge/';
 let env;
@@ -15,7 +16,7 @@ const realFetch = globalThis.fetch;
 
 beforeEach(() => {
   env = {
-    DB: createD1(),
+    DB: process.env.CLAWD_TEST_DATABASE === 'production-sqlite' ? openDatabase(':memory:') : createD1(),
     ALLOWED_ORIGINS: 'https://tsdsj.github.io',
     GAME_URL: GAME,
     BLOCKED_WORDS: '坏词',
@@ -45,6 +46,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   globalThis.fetch = realFetch;
+  env.DB.raw.close();
 });
 
 async function call(method, path, { body, token, ip, origin } = {}) {
@@ -95,6 +97,131 @@ async function linuxdoLogin(user, { guestToken, returnTo = `${GAME}?x=1` } = {})
 }
 
 // ---------- guests ----------
+
+test('A01: concurrent registration respects the initial and expired fixed windows', async t => {
+  let now=Date.now();t.mock.method(Date,'now',()=>now);
+  const attempt=()=>Promise.all(Array.from({length:12},(_,i)=>call('POST','/api/register',{ip:'rate-race',body:{name:`窗口${i}`}})));
+  for(let round=0;round<2;round++) {
+    const responses=await attempt();
+    assert.equal(responses.filter(r=>r.status===201).length,5);
+    assert.equal(responses.filter(r=>r.status===429).length,7);
+    assert.ok(responses.filter(r=>r.status===429).every(r=>Number(r.headers.get('Retry-After'))===3600));
+    assert.equal(env.DB.raw.prepare("SELECT count FROM rate_limits WHERE key='register:rate-race'").get().count,5);
+    now+=3600_000;
+  }
+  env.DB.raw.prepare('INSERT INTO rate_limits VALUES (?,?,?)').run('register:partial-window',now-1000,4);
+  const partial=await Promise.all(Array.from({length:12},(_,i)=>call('POST','/api/register',{ip:'partial-window',body:{name:`余量${i}`}})));
+  assert.equal(partial.filter(r=>r.status===201).length,1);
+  assert.ok(partial.filter(r=>r.status===429).every(r=>r.headers.get('Retry-After')==='3599'));
+  assert.equal((await call('POST','/api/register',{ip:'another-ip',body:{name:'独立窗口'}})).status,201);
+});
+
+test('A01: equal timestamps use the same stable order in list, personal rank and new receipt',async t=>{
+  t.mock.method(Date,'now',()=>2_000_000_000_000);
+  const players=await Promise.all(['同分甲','同分乙'].map(register));
+  players.sort((a,b)=>a.player.id<b.player.id?-1:1);
+  // Put the later ID first, then create the earlier ID's equal-score receipt.
+  await play(players[1].token,{score:100,drops:1,seconds:0});
+  const first=await play(players[0].token,{score:100,drops:1,seconds:0});
+  assert.equal(first.data.rank,1);
+  const board=(await call('GET','/api/leaderboard')).data.entries;
+  assert.deepEqual(board.map(p=>p.id),players.map(p=>p.player.id));
+  for(const [index,p] of players.entries())assert.equal((await call('GET','/api/me',{token:p.token})).data.rank,index+1);
+  const secondReceipt=await play(players[1].token,{score:1,drops:1,seconds:0});
+  assert.equal(secondReceipt.data.rank,2);
+  const original=env.DB.raw.prepare('SELECT session_id FROM score_receipts WHERE player_id=? AND score=100').get(players[1].player.id);
+  const replay=await call('POST','/api/score',{token:players[1].token,body:{sessionId:original.session_id,score:100,drops:1,maxLevel:5}});
+  assert.equal(replay.data.rank,1); // Historical receipt remains an immutable snapshot.
+});
+
+for(const changed of ['target','guest'])test(`A01: merge reads the current ${changed} score inside its transaction`,async t=>{
+  const user={id:991,username:'atomic_member'};
+  const account=await linuxdoLogin(user),guest=await register('事务游客');
+  await play(account.token,{score:100,drops:1});await play(guest.token,{score:200,drops:1});
+  const session=(await call('POST','/api/session',{token:changed==='target'?account.token:guest.token})).data.sessionId;
+  const batch=env.DB.batch.bind(env.DB);let injected=false;
+  t.mock.method(env.DB,'batch',async statements=>{
+    if(!injected&&statements.some(s=>s.sql.includes('UPDATE scores SET player_id'))) {
+      injected=true;
+      const result=await call('POST','/api/score',{token:changed==='target'?account.token:guest.token,body:{sessionId:session,score:300,drops:1,maxLevel:7}});
+      assert.equal(result.status,200);
+    }
+    return batch(statements);
+  });
+  const login=await linuxdoLogin(user,{guestToken:guest.token});
+  assert.equal(login.error,undefined);assert.equal(injected,true);
+  const me=(await call('GET','/api/me',{token:account.token})).data;
+  assert.equal(me.best,300);assert.equal(me.bestLevel,7);assert.equal(me.games,3);
+});
+
+test('A01: concurrent callbacks merge one guest once and preserve the earliest tied best',async()=>{
+  const user={id:992,username:'once_member'};
+  const account=await linuxdoLogin(user),guest=await register('只合并一次');
+  await play(account.token,{score:200,drops:1});await play(guest.token,{score:200,drops:1,maxLevel:8});
+  env.DB.raw.prepare('UPDATE players SET best_at=? WHERE id=?').run(1000,guest.player.id);
+  env.DB.raw.prepare('UPDATE players SET best_at=? WHERE id=?').run(2000,account.player.id);
+  env.DB.raw.prepare('INSERT INTO challenge_allowances VALUES (?,?,?)').run('fixture-day',guest.player.id,2);
+  env.DB.raw.prepare('INSERT INTO challenge_allowances VALUES (?,?,?)').run('fixture-day',account.player.id,1);
+  const results=await Promise.all(Array.from({length:6},()=>linuxdoLogin(user,{guestToken:guest.token})));
+  assert.ok(results.every(r=>!r.error));
+  const row=env.DB.raw.prepare('SELECT * FROM players WHERE id=?').get(account.player.id);
+  assert.equal(row.games,2);assert.equal(row.best_at,1000);assert.equal(row.best_level,8);
+  assert.equal(env.DB.raw.prepare('SELECT used FROM challenge_allowances WHERE player_id=?').get(account.player.id).used,3);
+  assert.equal(env.DB.raw.prepare('SELECT count(*) n FROM players').get().n,1);
+});
+
+test('A01: simultaneous first Linux.do sign-ins converge on one account without doubling guest quota',async()=>{
+  const guest=await register('首次绑定');
+  env.DB.raw.prepare('INSERT INTO challenge_allowances VALUES (?,?,?)').run('fixture-day',guest.player.id,2);
+  const results=await Promise.all(Array.from({length:6},()=>linuxdoLogin({id:993,username:'first_member'},{guestToken:guest.token})));
+  assert.ok(results.every(r=>!r.error));
+  assert.equal(new Set(results.map(r=>r.player.id)).size,1);
+  assert.equal(results[0].player.id,guest.player.id);
+  assert.equal(env.DB.raw.prepare('SELECT used FROM challenge_allowances WHERE player_id=?').get(guest.player.id).used,2);
+});
+
+test('A01: simultaneous anonymous OAuth sign-ins create exactly one provider account',async()=>{
+  const results=await Promise.all(Array.from({length:6},()=>linuxdoLogin({id:995,username:'new_member'})));
+  assert.ok(results.every(r=>!r.error));
+  assert.equal(new Set(results.map(r=>r.player.id)).size,1);
+  assert.equal(env.DB.raw.prepare('SELECT count(*) n FROM players').get().n,1);
+});
+
+test('A01: failed merge rolls back profile, scores, ownership and quota together',async t=>{
+  const user={id:994,username:'before_failure'};
+  const account=await linuxdoLogin(user),guest=await register('回滚游客');
+  await play(guest.token,{score:200,drops:1});
+  env.DB.raw.exec("CREATE TRIGGER reject_guest_delete BEFORE DELETE ON players BEGIN SELECT RAISE(ABORT,'test rollback'); END");
+  t.mock.method(console,'error',()=>{});
+  const result=await linuxdoLogin({...user,username:'after_failure'},{guestToken:guest.token});
+  assert.ok(result.error);
+  const a=(await call('GET','/api/me',{token:account.token})).data;
+  const g=(await call('GET','/api/me',{token:guest.token})).data;
+  assert.equal(a.player.name,'before_failure');assert.equal(a.games,0);
+  assert.equal(g.player.id,guest.player.id);assert.equal(g.best,200);
+});
+
+test('A01: a classic start cannot create an orphan ticket after its owner is merged away',async t=>{
+  const guest=await register('开局交错');const batch=env.DB.batch.bind(env.DB);
+  t.mock.method(env.DB,'batch',async statements=>{
+    if(statements.some(s=>s.sql.includes('INSERT INTO sessions')))env.DB.raw.prepare('DELETE FROM players WHERE id=?').run(guest.player.id);
+    return batch(statements);
+  });
+  const response=await call('POST','/api/session',{token:guest.token});
+  assert.equal(response.status,409);assert.equal(response.data.error,'identity_changed');
+  assert.equal(env.DB.raw.prepare('SELECT count(*) n FROM sessions').get().n,0);
+});
+
+test('A01: a pending guest rename cannot overwrite a newly bound Linux.do profile',async t=>{
+  const guest=await register('改名交错');const batch=env.DB.batch.bind(env.DB);
+  t.mock.method(env.DB,'batch',async statements=>{
+    if(statements.some(s=>s.sql.startsWith('UPDATE players SET name')))env.DB.raw.prepare("UPDATE players SET linuxdo_id=999,name='bound_member',name_key='ld:999',tag=NULL WHERE id=?").run(guest.player.id);
+    return batch(statements);
+  });
+  const response=await call('POST','/api/rename',{token:guest.token,body:{name:'不应覆盖'}});
+  assert.equal(response.status,409);assert.equal(response.data.error,'identity_changed');
+  assert.equal((await call('GET','/api/me',{token:guest.token})).data.player.name,'bound_member');
+});
 
 test('guest names may repeat and get distinct 4-digit tags', async () => {
   const a = await register('Clawd粉丝');

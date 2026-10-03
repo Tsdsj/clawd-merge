@@ -8,6 +8,77 @@ const oldPlayer = { id: 'test-player', name: 'Test', token: 'isolated-test-token
 let imports = 0;
 const environments = new WeakSet();
 
+for(const action of ['switch','logout','aba','other-tab'])test(`A01: a late rename cannot overwrite ${action}`,async t=>{
+  const {leaderboard,storage}=await client(t,'https://game.example.test/');
+  const original={id:'A',name:'Old'};leaderboard.save(original,'token-A');
+  let resolve;t.mock.method(globalThis,'fetch',()=>new Promise(r=>{resolve=r;}));
+  const pending=leaderboard.rename('New');
+  const rejection=assert.rejects(pending,{code:'identity_changed'});
+  if(action==='switch')leaderboard.save({id:'B',name:'Other'},'token-B');
+  if(action==='logout')leaderboard.forget();
+  if(action==='aba'){leaderboard.forget();leaderboard.save(original,'token-A');}
+  if(action==='other-tab')storage.set(legacyKey,JSON.stringify({id:'B',name:'Other',token:'token-B'}));
+  const before=storage.get(legacyKey);
+  resolve(Response.json({player:{id:'A',name:'New'}}));await rejection;
+  assert.equal(storage.get(legacyKey),before);
+  if(action==='logout')assert.equal(leaderboard.player,null);
+  if(action==='switch')assert.equal(leaderboard.player.id,'B');
+});
+
+test('A01: only one rename per active identity is sent and a stale refresh cannot revert it',{timeout:2000},async t=>{
+  const {leaderboard}=await client(t,'https://game.example.test/');leaderboard.save({id:'A',name:'Old'},'token-A');
+  const calls=[];t.mock.method(globalThis,'fetch',(url)=>new Promise(resolve=>calls.push({url,resolve})));
+  const refresh=leaderboard.refresh();const rename=leaderboard.rename('New');
+  await assert.rejects(leaderboard.rename('Another'),{code:'operation_in_progress'});
+  assert.equal(calls.length,2);
+  calls[1].resolve(Response.json({player:{id:'A',name:'New'}}));await rename;
+  calls[0].resolve(Response.json({player:{id:'A',name:'Old'}}));await refresh;
+  assert.equal(leaderboard.player.name,'New');
+});
+
+test('A01: pending registration and OAuth exchange cannot resurrect a cancelled identity',async t=>{
+  const {leaderboard}=await client(t,'https://game.example.test/#login=fixture-code');
+  let resolve;t.mock.method(globalThis,'fetch',()=>new Promise(r=>{resolve=r;}));
+  const registering=leaderboard.register('Test');const rejected=assert.rejects(registering,{code:'identity_changed'});
+  leaderboard.forget();resolve(Response.json({player:{id:'A',name:'Test'},token:'token-A'}));await rejected;
+  const login=leaderboard.finishLoginRedirect();leaderboard.save({id:'B',name:'Other'},'token-B');
+  resolve(Response.json({player:{id:'A',name:'Test'},token:'token-A'}));
+  const result=await login;assert.equal(result.player,undefined);assert.equal(leaderboard.player.id,'B');
+});
+
+test('A01: a stale OAuth start cannot navigate away after account switching',async t=>{
+  const {leaderboard}=await client(t,'https://game.example.test/');leaderboard.save({id:'A',name:'First'},'token-A');
+  let navigated=false;location.assign=()=>{navigated=true;};
+  let resolve;t.mock.method(globalThis,'fetch',()=>new Promise(r=>{resolve=r;}));
+  const pending=leaderboard.loginWithLinuxdo();const rejected=assert.rejects(pending,{code:'identity_changed'});
+  leaderboard.save({id:'B',name:'Second'},'token-B');
+  resolve(Response.json({url:'https://provider.example.test/authorize'}));await rejected;
+  assert.equal(navigated,false);
+});
+
+test('A01: a memory-only identity can still rename when storage remains unavailable',async t=>{
+  const {leaderboard}=await client(t,'https://game.example.test/');
+  t.mock.method(localStorage,'setItem',()=>{throw new Error('blocked');});
+  leaderboard.save({id:'A',name:'Before'},'token-A');
+  t.mock.method(globalThis,'fetch',async()=>Response.json({player:{id:'A',name:'After'}}));
+  await leaderboard.rename('After');
+  assert.equal(leaderboard.player.name,'After');assert.equal(leaderboard.player.token,'token-A');assert.equal(leaderboard.memoryOnly,true);
+});
+
+test('A01: storage events invalidate a pending response even after another tab restores the same identity',async t=>{
+  const previous=Object.getOwnPropertyDescriptor(globalThis,'addEventListener');let storageEvent;
+  globalThis.addEventListener=(type,fn)=>{if(type==='storage')storageEvent=fn;};
+  t.after(()=>previous?Object.defineProperty(globalThis,'addEventListener',previous):delete globalThis.addEventListener);
+  const {leaderboard,storage}=await client(t,'https://game.example.test/');leaderboard.save({id:'A',name:'Before'},'token-A');
+  const original=storage.get(legacyKey);
+  let resolve;t.mock.method(globalThis,'fetch',()=>new Promise(r=>{resolve=r;}));
+  const pending=leaderboard.rename('After');const rejected=assert.rejects(pending,{code:'identity_changed'});
+  storage.set(legacyKey,JSON.stringify({id:'B',name:'Other',token:'token-B'}));storageEvent({key:legacyKey});
+  storage.set(legacyKey,original);storageEvent({key:legacyKey});
+  resolve(Response.json({player:{id:'A',name:'After'}}));await rejected;
+  assert.equal(storage.get(legacyKey),original);
+});
+
 // Exercise the actual client; replace only browser storage/location and transport.
 // No request in this suite reaches a network or uses a real credential.
 async function client(t, url, storage = new Map()) {

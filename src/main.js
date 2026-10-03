@@ -220,6 +220,7 @@ const modalOpen = () => document.body.classList.contains('modal-open');
 const modalFocus = new WeakMap();
 
 function showModal(modal, open) {
+  if (!open && modal === nameModal) leaderboard.cancelIdentityRequests();
   if(open && daily?.active && modal===restoreModal)return;
   if (modal === restoreModal && !open) saves?.invalidateOffer();
   if (open) modalFocus.set(modal, document.activeElement);
@@ -364,6 +365,7 @@ function openAccount(message = '') {
   $('acc-guest').classList.toggle('hidden', p.linuxdo);
   $('acc-reauth').classList.toggle('hidden', !p.linuxdo);
   $('rename-input').value = '';
+  $('rename-form').querySelector('button').disabled = leaderboard.renaming;
   $('acc-error').textContent = message;
   showModal(accountModal, true);
 }
@@ -376,13 +378,18 @@ accountModal.addEventListener('click', (e) => {
 
 $('rename-form').addEventListener('submit', async (e) => {
   e.preventDefault();
+  const owner=leaderboard.player;
+  const button=e.currentTarget.querySelector('button');
+  button.disabled=true;
   try {
     await leaderboard.rename($('rename-input').value.trim());
     showPlayer();
-    openAccount();
+    if(!accountModal.classList.contains('hidden'))openAccount();
     toast('改好名字了');
   } catch (err) {
-    $('acc-error').textContent = err.message;
+    if(!accountModal.classList.contains('hidden')&&leaderboard.player?.token===owner?.token)$('acc-error').textContent = err.message;
+  } finally {
+    button.disabled=leaderboard.renaming;
   }
 });
 

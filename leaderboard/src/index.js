@@ -146,22 +146,23 @@ async function rename(request, env) {
   await rateLimit(env.DB, `rename:${player.id}`, LIMITS.rename, '今天改名次数用完了，明天再来');
   const name = checkGuestName((await readJson(request)).name, env);
   const tag = await insertWithFreeTag(env.DB, name, (tag) => [
-    env.DB.prepare('UPDATE players SET name = ?, name_key = ?, tag = ? WHERE id = ?').bind(
+    env.DB.prepare('UPDATE players SET name = ?, name_key = ?, tag = ? WHERE id = ? AND linuxdo_id IS NULL').bind(
       name,
       guestKey(name, tag),
       tag,
       player.id,
     ),
-  ]);
+  ], { requireChange: true });
   return json({ player: publicPlayer({ ...player, name, tag }) });
 }
 
 // Runs `statements(tag)` with a random free 4-digit tag, retrying on collisions.
-async function insertWithFreeTag(db, name, statements) {
+async function insertWithFreeTag(db, name, statements, { requireChange = false } = {}) {
   for (let attempt = 0; attempt < 8; attempt++) {
     const tag = String(crypto.getRandomValues(new Uint16Array(1))[0] % 10000).padStart(4, '0');
     try {
-      await db.batch(statements(tag));
+      const result = await db.batch(statements(tag));
+      if (requireChange && result[0]?.meta?.changes !== 1) throw new ApiError(409, 'identity_changed', '账号已变化，请刷新账号资料后重试');
       return tag;
     } catch (err) {
       if (!String(err).includes('UNIQUE')) throw err;
@@ -294,54 +295,36 @@ async function fetchLinuxdoUser(accessToken, env) {
 async function upsertLinuxdoPlayer(db, user, mergeGuestId) {
   const linuxdoId = Number(user.id);
   const fields = [String(user.username).slice(0, 40), avatarUrl(user.avatar_template), Number(user.trust_level) || 0];
-  const existing = await db.prepare('SELECT * FROM players WHERE linuxdo_id = ?').bind(linuxdoId).first();
-  const guest = mergeGuestId
-    ? await db.prepare('SELECT * FROM players WHERE id = ? AND linuxdo_id IS NULL').bind(mergeGuestId).first()
-    : null;
-
-  if (!existing && guest) {
-    // First LINUX DO login from a guest: the guest row simply becomes the account.
-    await db
-      .prepare(
-        'UPDATE players SET name = ?, avatar = ?, trust_level = ?, linuxdo_id = ?, name_key = ?, tag = NULL WHERE id = ?',
-      )
-      .bind(...fields, linuxdoId, `ld:${linuxdoId}`, guest.id)
-      .run();
-    return guest.id;
-  }
-
-  let id = existing?.id;
-  if (existing) {
-    await db.prepare('UPDATE players SET name = ?, avatar = ?, trust_level = ? WHERE id = ?').bind(...fields, id).run();
-  } else {
-    id = crypto.randomUUID();
-    await db
-      .prepare(
-        `INSERT INTO players (id, name, name_key, token_hash, avatar, trust_level, linuxdo_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .bind(id, fields[0], `ld:${linuxdoId}`, await sha256(randomToken()), fields[1], fields[2], linuxdoId, Date.now())
-      .run();
-  }
-
-  if (guest) {
-    // The account already existed: fold the guest's history into it.
-    const better = guest.best_score > (existing?.best_score ?? 0);
-    await db.batch([
-      db.prepare('UPDATE scores SET player_id = ? WHERE player_id = ?').bind(id, guest.id),
-      db.prepare('UPDATE score_receipts SET player_id = ? WHERE player_id = ?').bind(id, guest.id),
-      db.prepare('UPDATE tokens SET player_id = ? WHERE player_id = ?').bind(id, guest.id),
-      db.prepare('UPDATE sessions SET player_id = ? WHERE player_id = ?').bind(id, guest.id),
-      better
-        ? db
-            .prepare('UPDATE players SET best_score = ?, best_level = ?, best_at = ?, games = games + ? WHERE id = ?')
-            .bind(guest.best_score, guest.best_level, guest.best_at, guest.games, id)
-        : db.prepare('UPDATE players SET games = games + ? WHERE id = ?').bind(guest.games, id),
-      ...mergeChallengeStatements(db,id,guest.id),
-      db.prepare('DELETE FROM players WHERE id = ?').bind(guest.id),
-    ]);
-  }
-  return id;
+  const guestId = mergeGuestId || null;
+  const tokenHash = await sha256(randomToken());
+  const target = '(SELECT id FROM players WHERE linuxdo_id = ?)';
+  const stillGuest = 'EXISTS (SELECT 1 FROM players WHERE id = ? AND linuxdo_id IS NULL)';
+  // D1 batch / production SQLite serialize this entire transaction. All
+  // decisions use current rows, never a pre-transaction score/profile copy.
+  // Removing the source in the same transaction makes repeated merges no-ops.
+  await db.batch([
+    db.prepare(`UPDATE players SET linuxdo_id = ?, name_key = ?, tag = NULL
+      WHERE id = ? AND linuxdo_id IS NULL
+      AND NOT EXISTS (SELECT 1 FROM players WHERE linuxdo_id = ?)`)
+      .bind(linuxdoId, `ld:${linuxdoId}`, guestId, linuxdoId),
+    db.prepare(`INSERT INTO players (id, name, name_key, token_hash, avatar, trust_level, linuxdo_id, created_at)
+      SELECT ?, ?, ?, ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM players WHERE linuxdo_id = ?)`)
+      .bind(crypto.randomUUID(), fields[0], `ld:${linuxdoId}`, tokenHash, fields[1], fields[2], linuxdoId, Date.now(), linuxdoId),
+    db.prepare('UPDATE players SET name = ?, avatar = ?, trust_level = ? WHERE linuxdo_id = ?').bind(...fields, linuxdoId),
+    db.prepare(`UPDATE players SET (best_score, best_level, best_at) =
+      (SELECT best_score, best_level, best_at FROM players WHERE id = ?)
+      WHERE linuxdo_id = ? AND EXISTS (SELECT 1 FROM players g WHERE g.id = ? AND g.linuxdo_id IS NULL
+        AND (g.best_score > players.best_score OR (g.best_score = players.best_score AND g.best_score > 0 AND g.best_at < players.best_at)))`)
+      .bind(guestId, linuxdoId, guestId),
+    db.prepare(`UPDATE players SET games = games + (SELECT games FROM players WHERE id = ?)
+      WHERE linuxdo_id = ? AND ${stillGuest}`).bind(guestId, linuxdoId, guestId),
+    ...['scores', 'score_receipts', 'tokens', 'sessions'].map(table =>
+      db.prepare(`UPDATE ${table} SET player_id = ${target} WHERE player_id = ? AND ${stillGuest}`)
+        .bind(linuxdoId, guestId, guestId)),
+    ...mergeChallengeStatements(db, { linuxdoId }, guestId),
+    db.prepare('DELETE FROM players WHERE id = ? AND linuxdo_id IS NULL').bind(guestId),
+  ]);
+  return (await db.prepare('SELECT id FROM players WHERE linuxdo_id = ?').bind(linuxdoId).first()).id;
 }
 
 async function exchangeLoginCode(request, env) {
@@ -383,8 +366,11 @@ async function startSession(request, env) {
       player.id,
       now - SESSION_TTL_MS,
     ),
-    env.DB.prepare('INSERT INTO sessions (id, player_id, started_at) VALUES (?, ?, ?)').bind(id, player.id, now),
+    env.DB.prepare('INSERT INTO sessions (id, player_id, started_at) SELECT ?, id, ? FROM players WHERE id = ?').bind(id, now, player.id),
   ]);
+  if (!await env.DB.prepare('SELECT id FROM sessions WHERE id = ? AND player_id = ?').bind(id, player.id).first()) {
+    throw new ApiError(409, 'identity_changed', '账号已变化，请刷新账号资料后重新开局');
+  }
   return json({ sessionId: id });
 }
 
@@ -461,7 +447,8 @@ async function submitScore(request, env) {
     env.DB.prepare(`UPDATE score_receipts SET
       best = (SELECT best_score FROM players WHERE id = score_receipts.player_id),
       rank = (SELECT CASE WHEN p.best_score > 0 THEN 1 +
-        (SELECT COUNT(*) FROM players q WHERE q.best_score > p.best_score OR (q.best_score = p.best_score AND q.best_at < p.best_at))
+        (SELECT COUNT(*) FROM players q WHERE q.best_score > p.best_score OR (q.best_score = p.best_score
+          AND (q.best_at < p.best_at OR (q.best_at = p.best_at AND q.id < p.id))))
         ELSE NULL END FROM players p WHERE p.id = score_receipts.player_id)
       WHERE attempt_id = ?`).bind(attempt),
   ]);
@@ -476,7 +463,7 @@ async function leaderboard(url, env) {
     env.DB.prepare(
       `SELECT id, name, tag, avatar, trust_level, linuxdo_id, best_score AS score, best_level AS level, best_at AS at
          FROM players WHERE best_score > 0
-        ORDER BY best_score DESC, best_at ASC LIMIT ?`,
+        ORDER BY best_score DESC, best_at ASC, id ASC LIMIT ?`,
     )
       .bind(limit)
       .all(),
@@ -522,34 +509,30 @@ async function authenticate(request, env) {
   return { ...player, tokenHash };
 }
 
-// 1-based rank; ties are broken by who reached the score first.
-async function rankOf(db, { best_score, best_at }) {
+// 1-based rank; ties use first achievement time, then stable player ID.
+async function rankOf(db, { best_score, best_at, id }) {
   const row = await db
-    .prepare('SELECT COUNT(*) AS n FROM players WHERE best_score > ? OR (best_score = ? AND best_at < ?)')
-    .bind(best_score, best_score, best_at)
+    .prepare('SELECT COUNT(*) AS n FROM players WHERE best_score > ? OR (best_score = ? AND (best_at < ? OR (best_at = ? AND id < ?)))')
+    .bind(best_score, best_score, best_at, best_at, id)
     .first();
   return row.n + 1;
 }
 
 async function rateLimit(db, key, { limit, windowMs }, message) {
   const now = Date.now();
-  const row = await db.prepare('SELECT window_start, count FROM rate_limits WHERE key = ?').bind(key).first();
-  if (!row || now - row.window_start >= windowMs) {
-    await db
-      .prepare(
-        `INSERT INTO rate_limits (key, window_start, count) VALUES (?, ?, 1)
-         ON CONFLICT(key) DO UPDATE SET window_start = excluded.window_start, count = 1`,
-      )
-      .bind(key, now)
-      .run();
-    return;
-  }
-  if (row.count >= limit) {
-    const error=new ApiError(429, 'rate_limited', message);
-    error.retryAfter=Math.max(1,Math.ceil((row.window_start+windowMs-now)/1000));
-    throw error;
-  }
-  await db.prepare('UPDATE rate_limits SET count = count + 1 WHERE key = ?').bind(key).run();
+  const expiresBefore = now - windowMs;
+  const accepted = await db.prepare(`INSERT INTO rate_limits (key, window_start, count) VALUES (?, ?, 1)
+    ON CONFLICT(key) DO UPDATE SET
+      window_start = CASE WHEN rate_limits.window_start <= ? THEN excluded.window_start ELSE rate_limits.window_start END,
+      count = CASE WHEN rate_limits.window_start <= ? THEN 1 ELSE rate_limits.count + 1 END
+    WHERE rate_limits.window_start <= ? OR rate_limits.count < ?
+    RETURNING window_start, count`).bind(key, now, expiresBefore, expiresBefore, expiresBefore, limit).first();
+  if (accepted) return;
+  // This read affects only the retry hint; admission above is already atomic.
+  const row = await db.prepare('SELECT window_start FROM rate_limits WHERE key = ?').bind(key).first();
+  const error = new ApiError(429, 'rate_limited', message);
+  error.retryAfter = row ? Math.max(1, Math.ceil((row.window_start + windowMs - now) / 1000)) : 1;
+  throw error;
 }
 
 export function normalizeName(raw) {

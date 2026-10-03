@@ -4,6 +4,7 @@ import { createRequire } from 'node:module';
 import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import { mergeChallengeStatements } from '../src/challenges.js';
 import { collectReport, cleanupStatements } from '../ops/report.mjs';
 
@@ -11,6 +12,16 @@ const require = createRequire(import.meta.url);
 const modulePath = process.env.MINIFLARE_MODULE;
 if (!modulePath) throw new Error('Set MINIFLARE_MODULE to an installed Miniflare package directory');
 const { Miniflare, convertV4MiniflareOptions } = require(modulePath);
+// Only loopback fixture endpoints; no real provider or credential is used.
+const oauth = createServer(async (req, res) => {
+  const chunks=[];for await(const chunk of req)chunks.push(chunk);
+  const code=req.url==='/token'?new URLSearchParams(Buffer.concat(chunks).toString()).get('code'):String(req.headers.authorization||'').replace('Bearer ','');
+  const id=Number(String(code).split(':')[0]);
+  res.setHeader('Content-Type','application/json');
+  res.end(JSON.stringify(req.url==='/token'?{access_token:code}:{id,username:`member_${id}`,active:true,silenced:false,trust_level:1}));
+});
+await new Promise(resolve=>oauth.listen(0,'127.0.0.1',resolve));oauth.unref();
+const oauthOrigin=`http://127.0.0.1:${oauth.address().port}`;
 const compatibilityDate = readFileSync(new URL('../wrangler.toml', import.meta.url), 'utf8').match(
   /compatibility_date\s*=\s*"([^"]+)"/,
 )[1];
@@ -24,7 +35,8 @@ const options = {
   d1Databases: { DB: 'isolated-receipt-test' },
   d1Persist: false,
   cf: false,
-  bindings: { ALLOWED_ORIGINS: '*', BLOCKED_WORDS: '' },
+  bindings: { ALLOWED_ORIGINS: '*', BLOCKED_WORDS: '', GAME_URL:'https://game.example.test/',
+    LINUXDO_CLIENT_ID:'fixture',LINUXDO_CLIENT_SECRET:'fixture',LINUXDO_TOKEN_URL:oauthOrigin+'/token',LINUXDO_USER_URL:oauthOrigin+'/user' },
 };
 const normalized = convertV4MiniflareOptions ? convertV4MiniflareOptions(options) : options;
 if (convertV4MiniflareOptions) normalized.telemetry = { enabled: false };
@@ -43,10 +55,11 @@ try {
       .filter(Boolean))
       await db.prepare(statement).run();
   }
-  async function api(path, { token, body } = {}) {
+  let ipCounter=0;
+  async function api(path, { token, body, ip } = {}) {
     const response = await mf.dispatchFetch(`http://localhost${path}`, {
       method: body ? 'POST' : 'GET',
-      headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP':ip||`198.51.100.${++ipCounter}`, ...(token ? { Authorization: `Bearer ${token}` } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
     return { status: response.status, data: await response.json() };
@@ -141,6 +154,58 @@ try {
   console.log(
     'PASS: isolated workerd/D1 — 8 concurrent identical requests accepted once, conflicts rejected, cleanup replay stable, failed transaction rolls back and retries.',
   );
+
+  for(let round=0;round<2;round++) {
+    if(round)await db.prepare("UPDATE rate_limits SET window_start=? WHERE key='register:a01-limit'").bind(Date.now()-3600_001).run();
+    const registrations=await Promise.all(Array.from({length:12},(_,i)=>api('/api/register',{ip:'a01-limit',body:{name:`限流${i}`}})));
+    assert.equal(registrations.filter(r=>r.status===201).length,5);
+    assert.equal(registrations.filter(r=>r.status===429).length,7);
+    assert.equal((await db.prepare("SELECT count FROM rate_limits WHERE key='register:a01-limit'").first()).count,5);
+  }
+  async function beginLogin(id,guestToken) {
+    const start=await api('/api/auth/linuxdo/start',{token:guestToken,body:{returnTo:'https://game.example.test/'}});
+    assert.equal(start.status,200);
+    const state=new URL(start.data.url).searchParams.get('state');
+    return async()=>{
+      const response=await mf.dispatchFetch(`http://localhost/api/auth/linuxdo/callback?code=${id}:${crypto.randomUUID()}&state=${state}`,{redirect:'manual'});
+      const hash=new URLSearchParams(new URL(response.headers.get('Location')).hash.slice(1));
+      if(hash.has('login_error'))return {error:hash.get('login_error')};
+      const result=await api('/api/auth/exchange',{body:{code:hash.get('login')}});
+      assert.equal(result.status,200);return result.data;
+    };
+  }
+  const initial=await Promise.all(Array.from({length:6},()=>beginLogin(887)));
+  const accounts=await Promise.all(initial.map(f=>f()));
+  assert.ok(accounts.every(x=>!x.error));assert.equal(new Set(accounts.map(x=>x.player.id)).size,1);
+  const owner=accounts[0];const guest=(await api('/api/register',{body:{name:'合并验证'}})).data;
+  const renamed=await api('/api/rename',{token:guest.token,body:{name:'改名验证'}});
+  assert.equal(renamed.status,200);assert.equal(renamed.data.player.name,'改名验证');
+  await db.prepare('UPDATE players SET best_score=300,best_level=7,best_at=1000,games=1 WHERE id=?').bind(owner.player.id).run();
+  await db.prepare('UPDATE players SET best_score=200,best_level=6,best_at=900,games=1 WHERE id=?').bind(guest.player.id).run();
+  await db.prepare('INSERT INTO challenge_allowances VALUES (?,?,?)').bind(challenge.challengeId,guest.player.id,2).run();
+  await db.prepare('INSERT INTO challenge_allowances VALUES (?,?,?)').bind(challenge.challengeId,owner.player.id,1).run();
+  const starts=await Promise.all(Array.from({length:6},()=>beginLogin(887,guest.token)));
+  const merged=await Promise.all(starts.map(f=>f()));assert.ok(merged.every(x=>!x.error&&x.player.id===owner.player.id));
+  const result=(await api('/api/me',{token:owner.token})).data;
+  assert.equal(result.best,300);assert.equal(result.games,2);
+  assert.equal((await db.prepare('SELECT used FROM challenge_allowances WHERE player_id=?').bind(owner.player.id).first()).used,3);
+  const failedGuest=(await api('/api/register',{body:{name:'回滚验证'}})).data;
+  await db.prepare('UPDATE players SET best_score=500,best_level=8,best_at=800,games=1 WHERE id=?').bind(failedGuest.player.id).run();
+  await db.prepare("CREATE TRIGGER a01_reject_delete BEFORE DELETE ON players BEGIN SELECT RAISE(ABORT,'A01 rollback fixture'); END").run();
+  assert.ok((await (await beginLogin(887,failedGuest.token))()).error);
+  assert.equal((await api('/api/me',{token:owner.token})).data.best,300);
+  assert.equal((await api('/api/me',{token:failedGuest.token})).data.player.id,failedGuest.player.id);
+  await db.prepare('DROP TRIGGER a01_reject_delete').run();
+  const ranked=await Promise.all(['同分前','同分后'].map(name=>api('/api/register',{body:{name}}).then(x=>x.data)));
+  ranked.sort((a,b)=>a.player.id<b.player.id?-1:1);
+  for(const p of ranked)await db.prepare('UPDATE players SET best_score=900,best_level=8,best_at=500 WHERE id=?').bind(p.player.id).run();
+  const board=(await api('/api/leaderboard')).data.entries;
+  assert.deepEqual(board.slice(0,2).map(x=>x.id),ranked.map(x=>x.player.id));
+  for(const [i,p] of ranked.entries())assert.equal((await api('/api/me',{token:p.token})).data.rank,i+1);
+  const rankingSession=(await api('/api/session',{body:{},token:ranked[1].token})).data.sessionId;
+  assert.equal((await api('/api/score',{token:ranked[1].token,body:{sessionId:rankingSession,score:1,drops:1,maxLevel:1}})).data.rank,2);
+  console.log('PASS: A01 real D1 atomic limits, concurrent account creation/guest merging, quota, rollback and stable ranks.');
 } finally {
   await mf.dispose();
+  await new Promise(resolve=>oauth.close(resolve));
 }

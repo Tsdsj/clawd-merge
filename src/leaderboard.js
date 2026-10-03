@@ -72,6 +72,35 @@ function loadPlayer() {
   }
 }
 
+let identityRevision = 0;
+let observedStorage = readPreference(PLAYER_KEY);
+let pendingMutation = null;
+let pendingRename = null;
+const identityChanged = () => new LeaderboardError('identity_changed', '账号或资料已变化，请刷新页面后再试');
+
+function captureIdentity(client, mutation = false) {
+  const stored = readPreference(PLAYER_KEY);
+  const persisted = loadPlayer();
+  if (client.memoryOnly) {
+    if (stored !== observedStorage) throw identityChanged();
+  } else if (persisted?.id !== client.player?.id || persisted?.token !== client.player?.token) {
+    throw identityChanged();
+  }
+  if (stored !== observedStorage) { identityRevision++; observedStorage = stored; }
+  if (mutation) identityRevision++;
+  const snapshot = { revision: identityRevision, stored, id: client.player?.id, token: client.player?.token };
+  if (mutation) pendingMutation = snapshot;
+  return snapshot;
+}
+function identityMatches(client, snapshot) {
+  return identityRevision === snapshot.revision && client.player?.id === snapshot.id &&
+    client.player?.token === snapshot.token && readPreference(PLAYER_KEY) === snapshot.stored;
+}
+function finishMutation(snapshot) { if (pendingMutation === snapshot) pendingMutation = null; }
+globalThis.addEventListener?.('storage', event => {
+  if (event.key === PLAYER_KEY || event.key === null) identityRevision++;
+});
+
 // "橙色钳子#4821" for guests, the plain username for LINUX DO accounts.
 export const displayName = (p) => (p.tag ? `${p.name}#${p.tag}` : p.name);
 
@@ -101,12 +130,18 @@ export const leaderboard = {
   },
 
   save(player, token = this.player?.token) {
+    identityRevision++;
     this.player = { ...player, token };
     this.memoryOnly=!writePreference(PLAYER_KEY, JSON.stringify(this.player));
+    observedStorage=readPreference(PLAYER_KEY);
     return this.player;
   },
 
+  cancelIdentityRequests() { identityRevision++; },
+  get renaming() { return Boolean(pendingRename && pendingRename.id===this.player?.id && pendingRename.token===this.player?.token); },
+
   forget() {
+    identityRevision++;
     const token=this.player?.token;
     this.player = null;
     this.memoryOnly=false;
@@ -116,16 +151,31 @@ export const leaderboard = {
       const stored=loadPlayer();
       if(!stored || stored.token===token)getStorage()?.removeItem(PLAYER_KEY);
     } catch { /* In-memory logout still takes effect. */ }
+    observedStorage=readPreference(PLAYER_KEY);
   },
 
   async register(name) {
-    const { player, token } = await request('/api/register', { method: 'POST', body: { name } });
-    return this.save(player, token);
+    const snapshot=captureIdentity(this,true);
+    try {
+      const { player, token } = await request('/api/register', { method: 'POST', body: { name }, timeoutMs:8000 });
+      if(!identityMatches(this,snapshot))throw identityChanged();
+      return this.save(player, token);
+    } finally { finishMutation(snapshot); }
   },
 
   async rename(name) {
-    const { player } = await request('/api/rename', { method: 'POST', token: this.player.token, body: { name } });
-    return this.save(player);
+    if(this.renaming)throw new LeaderboardError('operation_in_progress','正在改名，请等待这次操作完成');
+    const snapshot=captureIdentity(this,true);
+    if(!snapshot.token){finishMutation(snapshot);throw identityChanged();}
+    pendingRename=snapshot;
+    try {
+      const { player } = await request('/api/rename', { method: 'POST', token: snapshot.token, body: { name }, timeoutMs:8000 });
+      if(!identityMatches(this,snapshot)||player?.id!==snapshot.id)throw identityChanged();
+      return this.save(player,snapshot.token);
+    } finally {
+      if(pendingRename===snapshot)pendingRename=null;
+      finishMutation(snapshot);
+    }
   },
 
   async logout() {
@@ -136,15 +186,20 @@ export const leaderboard = {
 
   // Leaves for LINUX DO; a signed-in guest's scores get merged into the account.
   async loginWithLinuxdo() {
-    const returnTo = location.origin + location.pathname + location.search;
-    const { url } = await request('/api/auth/linuxdo/start', {
-      method: 'POST',
-      // Existing LINUX DO users reauthenticate through OAuth itself. An expired
-      // app token must not prevent that; guests still prove ownership to merge.
-      token: this.player?.linuxdo ? undefined : this.player?.token,
-      body: { returnTo },
-    });
-    location.assign(url);
+    const snapshot=captureIdentity(this,true);
+    try {
+      const returnTo = location.origin + location.pathname + location.search;
+      const { url } = await request('/api/auth/linuxdo/start', {
+        method: 'POST',
+        // Existing LINUX DO users reauthenticate through OAuth itself. An expired
+        // app token must not prevent that; guests still prove ownership to merge.
+        token: this.player?.linuxdo ? undefined : snapshot.token,
+        body: { returnTo },
+        timeoutMs:8000,
+      });
+      if(!identityMatches(this,snapshot))throw identityChanged();
+      location.assign(url);
+    } finally { finishMutation(snapshot); }
   },
 
   // Coming back from LINUX DO the page URL ends in #login=<code> or #login_error=<msg>.
@@ -155,24 +210,28 @@ export const leaderboard = {
     if (!code && !error) return null;
     history.replaceState(null, '', location.pathname + location.search);
     if (error) return { error };
+    let snapshot;
     try {
-      const { player, token } = await request('/api/auth/exchange', { method: 'POST', body: { code } });
+      snapshot=captureIdentity(this,true);
+      const { player, token } = await request('/api/auth/exchange', { method: 'POST', body: { code }, timeoutMs:8000 });
+      if(!identityMatches(this,snapshot))throw identityChanged();
       return { player: this.save(player, token) };
     } catch (err) {
       return { error: err.message };
-    }
+    } finally { finishMutation(snapshot); }
   },
 
   // Refreshes the cached profile (e.g. a guest who logged in on another device).
   async refresh() {
-    if (!this.player) return;
-    const token = this.player.token;
+    if (!this.player || pendingMutation?.revision===identityRevision) return;
+    let snapshot;
     try {
-      const me = await request('/api/me', { token });
-      if (this.player?.token !== token || loadPlayer()?.token !== token) return;
-      this.save(me.player);
+      snapshot=captureIdentity(this);
+      const me = await request('/api/me', { token:snapshot.token,timeoutMs:8000 });
+      if (!identityMatches(this,snapshot)) return;
+      this.save(me.player,snapshot.token);
     } catch (err) {
-      if (err.status === 401 && this.player?.token === token) this.onUnauthorized?.();
+      if (err.status === 401 && snapshot && identityMatches(this,snapshot)) this.onUnauthorized?.();
     }
   },
 

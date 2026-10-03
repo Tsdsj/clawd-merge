@@ -339,24 +339,32 @@ export async function challengeRoute(request, env, url, h) {
 }
 
 export function mergeChallengeStatements(db, to, from) {
+  // OAuth resolves the canonical player in the same transaction that creates
+  // or promotes it. Only a still-existing guest may contribute data; promotion
+  // in place and a second callback must not add the same allowance twice.
+  const canonical = typeof to === 'object' && to !== null;
+  const target = canonical ? '(SELECT id FROM players WHERE linuxdo_id = ?)' : '?';
+  const destination = canonical ? to.linuxdoId : to;
+  const guard = canonical ? ' AND EXISTS (SELECT 1 FROM players WHERE id = ? AND linuxdo_id IS NULL)' : '';
+  const source = canonical ? [from, from] : [from];
   return [
     db
       .prepare(
-        `INSERT INTO challenge_allowances (challenge_id,player_id,used) SELECT challenge_id,?,used FROM challenge_allowances WHERE player_id=?
+        `INSERT INTO challenge_allowances (challenge_id,player_id,used) SELECT challenge_id,${target},used FROM challenge_allowances WHERE player_id=?${guard}
       ON CONFLICT(challenge_id,player_id) DO UPDATE SET used=challenge_allowances.used+excluded.used`,
       )
-      .bind(to, from),
-    db.prepare('DELETE FROM challenge_allowances WHERE player_id=?').bind(from),
-    db.prepare('UPDATE challenge_sessions SET player_id=? WHERE player_id=?').bind(to, from),
-    db.prepare('UPDATE challenge_scores SET player_id=? WHERE player_id=?').bind(to, from),
+      .bind(destination, ...source),
+    db.prepare(`DELETE FROM challenge_allowances WHERE player_id=?${guard}`).bind(...source),
+    db.prepare(`UPDATE challenge_sessions SET player_id=${target} WHERE player_id=?${guard}`).bind(destination, ...source),
+    db.prepare(`UPDATE challenge_scores SET player_id=${target} WHERE player_id=?${guard}`).bind(destination, ...source),
     db
       .prepare(
         `INSERT INTO challenge_bests (challenge_id,player_id,score,max_level,best_at)
-      SELECT challenge_id,?,score,max_level,best_at FROM challenge_bests WHERE player_id=?
+      SELECT challenge_id,${target},score,max_level,best_at FROM challenge_bests WHERE player_id=?${guard}
       ON CONFLICT(challenge_id,player_id) DO UPDATE SET score=excluded.score,max_level=excluded.max_level,best_at=excluded.best_at
       WHERE excluded.score>challenge_bests.score OR (excluded.score=challenge_bests.score AND excluded.best_at<challenge_bests.best_at)`,
       )
-      .bind(to, from),
-    db.prepare('DELETE FROM challenge_bests WHERE player_id=?').bind(from),
+      .bind(destination, ...source),
+    db.prepare(`DELETE FROM challenge_bests WHERE player_id=?${guard}`).bind(...source),
   ];
 }
