@@ -1,6 +1,6 @@
 # A07 · 发布准备与操作清单
 
-日期：2026-10-04。**仅发布准备，不是上线记录。** 当前没有切换应用镜像、静态站点或生产数据库，没有启用线上密码入口。真实 OAuth2 沿用用户确认，不重复实测；手机软键盘和实际密码管理器仍按 [A06](account-system.md) 保留人工待验项。
+日期：2026-10-04。本文保留发布准备与可复用操作清单；经用户单独授权，版本 `4a4700e` 已正式发布，密码注册、首次设密和新绑定入口已开放。实际发布证据见 [发布记录](a07-production-release.md)。真实 OAuth2 沿用用户确认，不重复实测；手机软键盘和实际密码管理器仍按 [A06](account-system.md) 保留人工待验项。
 
 ## 已准备的材料
 
@@ -56,10 +56,10 @@ node scripts/rehearse-account-release.mjs --source "$PRIVATE_BACKUP_COPY" --out-
 
    ```bash
    compose stop api backup
-   compose run --rm --no-deps --entrypoint node -e "BACKUP_DIR=/backups/release-$RELEASE" backup server/backup.mjs
+   compose run --rm --no-deps --entrypoint node -v "$PRIVATE_DATA_DIR:/data:rw" -e "BACKUP_DIR=/backups/release-$RELEASE" backup server/backup.mjs
    ```
 
-   核对备份完整性、权限和可恢复性。禁止直接复制运行中的 WAL 主文件作为备份。
+   `PRIVATE_DATA_DIR` 必须取自当前 API 的真实数据挂载。停止写入后，SQLite 可能需要重建 WAL/SHM 配套文件；本次一次性备份允许该目录写入，但脚本的数据库连接仍为 `readOnly:true`。不要把周期备份服务改成永久可写。核对备份完整性、权限和可恢复性。禁止直接复制运行中的 WAL 主文件作为备份。
 7. 先启动兼容 api，由迁移器应用新增 schema；核对健康、迁移记录和日志。`/api/auth/capabilities` 应为 `passwordEnabled=true`、`registrationEnabled=false`；读取已有账号资料、榜单与原资格，不能只以 `/api/health` 的200判定密码服务已就绪。
 8. 再切换前端。静态目录使用固定版本路径，并重建 web 以更新 bind mount；不能假设换宿主 symlink 会自动更新既有容器挂载。核对外部 HTTPS、页面/API、实际资源 SHA、CSP 和浏览器来源，然后恢复周期 backup。Caddy、80/443、SSH、防火墙不随应用发布调整。
 9. 观察兼容阶段通过后，按授权将两个新入口开关置1并重建 api；保持完整 Compose 组合、同一 keyring 和数据目录。最终核对 capabilities、错误码与成绩/次数归属。真实账号验收仅按用户明确允许的范围执行。
