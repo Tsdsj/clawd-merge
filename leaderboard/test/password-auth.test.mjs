@@ -239,3 +239,20 @@ test('A07 closing new password enrollment preserves existing login, recovery and
  const recovery=await f.prepare('recover_password',{loginHandle:registered.account.loginHandle});
  assert.equal((await f.call('/api/auth/password/recover',{...recovery,loginHandle:registered.account.loginHandle,recoveryCode:registered.recoveryCode,newPassword:PASSWORD+' restored'})).status,200);
 });
+
+test('password policy accepts 6 through 128 code points across registration, login, change and recovery',async t=>{
+ const f=await fixture(t),proof=await f.prepare('register',{name:'长度边界'});
+ for(const password of ['12345','x'.repeat(129)]){
+  const rejected=await f.call('/api/auth/password/register',{...proof,password});assert.equal(rejected.status,400);assert.equal(rejected.data.error,'bad_password');
+ }
+ const created=await f.call('/api/auth/password/register',{...proof,password:'123456'});assert.equal(created.status,201,JSON.stringify(created.data));
+ const r=created.data,handle=r.account.loginHandle;
+ assert.equal((await f.call('/api/auth/password/login',{loginHandle:handle,password:'12345'})).status,400);
+ const login=await f.call('/api/auth/password/login',{loginHandle:handle,password:'123456'});assert.equal(login.status,200);
+ const change=await f.prepare('change_password',{},login.data.token);
+ const changed=await f.call('/api/account/password',{operation:'change',oldPassword:'123456',newPassword:'海边小蟹游戏',...change},login.data.token);assert.equal(changed.status,200,JSON.stringify(changed.data));
+ assert.equal((await f.call('/api/auth/password/login',{loginHandle:handle,password:'海边小蟹游戏'})).status,200);
+ const recovery=await f.prepare('recover_password',{loginHandle:handle});
+ const recovered=await f.call('/api/auth/password/recover',{loginHandle:handle,recoveryCode:r.recoveryCode,newPassword:'x'.repeat(128),...recovery});assert.equal(recovered.status,200,JSON.stringify(recovered.data));
+ assert.equal((await f.call('/api/auth/password/login',{loginHandle:handle,password:'x'.repeat(128)})).status,200);
+});

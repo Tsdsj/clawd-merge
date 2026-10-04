@@ -12,7 +12,7 @@ const mac=(key,value)=>createHmac('sha256',key).update(value).digest('hex');
 const same=(a,b)=>{if(typeof a!=='string'||typeof b!=='string')return false;const left=Buffer.from(a),right=Buffer.from(b);return left.length===right.length&&timingSafeEqual(left,right);};
 const uuid=value=>typeof value==='string'&&/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(value);
 const secret=value=>typeof value==='string'&&/^[A-Za-z0-9_-]{43}$/.test(value)&&Buffer.from(value,'base64url').length===32&&Buffer.from(value,'base64url').toString('base64url')===value;
-const passwordValid=value=>typeof value==='string'&&[...value].length>=15&&[...value].length<=128&&!/[\p{Cs}]/u.test(value);
+const passwordValid=value=>typeof value==='string'&&[...value].length>=6&&[...value].length<=128&&!/[\p{Cs}]/u.test(value);
 const bearer=request=>{const value=request.headers.get('Authorization')||'';return value.startsWith('Bearer ')?value.slice(7).trim():null;};
 const actions=new Set(['register','set_password','change_password','recover_password','rotate_recovery','exchange_login']);
 
@@ -60,7 +60,7 @@ export function createPasswordAuth({DB,keyring,kdf,enabled=false,registrationEna
   const json=(value,status=200)=>h.json(value,status,{'Cache-Control':'no-store'});
   const raw=DB.raw,tx=fn=>DB.transaction(fn),readOp=id=>raw.prepare('SELECT * FROM auth_operations WHERE request_id=?').get(id);
   const requireString=(value)=>{if(typeof value!=='string')fail(400,'bad_request','请求字段不正确');return value;};
-  const requirePassword=value=>{if(!passwordValid(value))fail(400,'bad_password','密码需为 15—128 个字符，且不能包含无效字符');return value;};
+  const requirePassword=value=>{if(!passwordValid(value))fail(400,'bad_password','密码需为 6—128 个字符，且不能包含无效字符');return value;};
   const token=bearer(request),tokenHash=token?sha(token):null;
   function actor(db=raw,required=true){const p=tokenHash?db.prepare(AUTH_QUERY).get(tokenHash):null;if(!sessionCurrent(p,now())){if(required)fail(401,'unauthorized','登录已失效，请重新登录');return null;}return {...p,tokenHash};}
   function rate(db,key,limit,windowMs){

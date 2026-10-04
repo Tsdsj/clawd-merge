@@ -4,11 +4,13 @@ async page => {
  const {url,api}=await page.evaluate(()=>{const u=new URL(location.href),a=new URL(u.searchParams.get('api')||'https://invalid.example');return {url:{hostname:u.hostname},api:{hostname:a.hostname,origin:a.origin}};});
  if(!['127.0.0.1','localhost'].includes(url.hostname)||!['127.0.0.1','localhost'].includes(api.hostname))throw Error('Use the isolated loopback fixture');
  const check=(value,message)=>{if(!value)throw Error(message);};const passed=[];
- const password='UI-password-2026-with-spaces',changed='Changed-password-2026',recovered='Recovered-password-2026';
+ const password='123456',changed='六字符新密码',recovered='654321';
  await page.setViewportSize({width:390,height:844});
  await page.locator('#join-btn').click();await page.getByRole('button',{name:'创建密码账号',exact:true}).click();
  await page.getByRole('textbox',{name:'注册名',exact:true}).fill('界面验证');await page.getByRole('button',{name:'确认名字，获取编号'}).click();
  await page.getByRole('heading',{name:'设置密码',exact:true}).waitFor();const handle=(await page.locator('.auth-credentials strong').textContent()).trim();
+ await page.locator('#auth-pass').fill('12345');await page.locator('#auth-confirm').fill('12345');await page.getByRole('button',{name:'创建账号并保留成绩'}).click();
+ check((await page.locator('.auth-error-text').innerText()).includes('6—128'),'five characters rejected with current minimum');
  await page.locator('#auth-pass').fill(password);await page.locator('#auth-confirm').fill('wrong-confirmation');await page.getByRole('button',{name:'创建账号并保留成绩'}).click();
  check((await page.locator('.auth-error-text').innerText()).includes('不一致'),'password confirmation');
  await page.locator('#auth-confirm').fill(password);await page.getByRole('button',{name:'创建账号并保留成绩'}).click();

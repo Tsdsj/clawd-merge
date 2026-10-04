@@ -4,7 +4,7 @@ const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const button=(text,action,primary=false)=>`<button type="button" class="auth-button ${primary?'auth-primary':''}" data-action="${action}">${text}</button>`;
 const notice=(text,type='')=>`<p class="auth-notice ${type}" ${type==='auth-error'?'role="alert"':''}>${esc(text)}</p>`;
 const field=(label,id,value='',hint='',autocomplete='off')=>`<label class="auth-field" for="auth-${id}">${label}</label><input id="auth-${id}" name="${autocomplete==='username'?'username':id}" value="${esc(value)}" autocomplete="${autocomplete}" ${autocomplete==='username'?'autocapitalize="none" spellcheck="false"':''} required>${hint?`<p class="auth-hint">${hint}</p>`:''}`;
-const password=(id,label,fresh=false)=>`<label class="auth-field" for="auth-${id}">${label}</label><div class="auth-password"><input id="auth-${id}" name="${id}" type="password" autocomplete="${fresh?'new-password':'current-password'}" required><button type="button" data-show="auth-${id}" aria-label="显示${label}" aria-pressed="false">显示</button></div>${fresh?'<p class="auth-hint">15—128 个字符，保留空格和大小写。支持粘贴。</p>':''}`;
+const password=(id,label,fresh=false)=>`<label class="auth-field" for="auth-${id}">${label}</label><div class="auth-password"><input id="auth-${id}" name="${id}" type="password" autocomplete="${fresh?'new-password':'current-password'}" required><button type="button" data-show="auth-${id}" aria-label="显示${label}" aria-pressed="false">显示</button></div>${fresh?'<p class="auth-hint">6—128 个字符，保留空格和大小写。支持粘贴。</p>':''}`;
 const form=(kind,body,label)=>`<form method="post" data-form="${kind}">${body}<p class="auth-error-text" role="alert"></p><button class="auth-button auth-primary" type="submit">${label}</button></form>`;
 const kindOf=p=>p?.account?.kind||(p?.linuxdo?'linuxdo':p?'guest':'anonymous');
 export function createAccountUI({client,oauth,identity,setOpen,onChanged,guard,onLinuxdo,onPending,onReload,notify}){
@@ -124,7 +124,7 @@ export function createAccountUI({client,oauth,identity,setOpen,onChanged,guard,o
  content.addEventListener('submit',e=>{
   e.preventDefault();if(busy)return;const type=e.target.dataset.form;
   const issue=text=>{e.target.querySelector('.auth-error-text').textContent=text;};
-  if(['password','change','recover','oauth-reset'].includes(type)){if(value('pass')!==value('confirm'))return issue('两次输入的密码不一致。');const n=[...value('pass')].length;if(n<15||n>128)return issue('密码需为 15—128 个字符。');}
+  if(['password','change','recover','oauth-reset'].includes(type)){if(value('pass')!==value('confirm'))return issue('两次输入的密码不一致。');const n=[...value('pass')].length;if(n<6||n>128)return issue('密码需为 6—128 个字符。');}
   if(type==='guest')return void protectedAction('join',()=>identity.register(value('name')),()=>{close(true);onChanged?.();});
   if(type==='register')return void protectedAction('mutation',()=>client.prepare(identity.player?'set_password':'register',{name:value('name')}),()=>render('password'));
   if(type==='password'){const pw=value('pass'),grant=oauthGrant;tempConfirmed=Boolean(content.querySelector('#auth-temporary')?.checked);return void protectedAction('mutation',()=>client.commit({password:pw,...(grant?{reauthProof:grant.reauthProof}:{})},{temporaryConfirmed:tempConfirmed}),success);}
