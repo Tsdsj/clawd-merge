@@ -146,7 +146,7 @@ M2 已接入服务器日题、正式机会与独立今日榜：游客与 LINUX D
 
 ## 部署
 
-账号版本的发布顺序、独立入口开关、私有副本演练与回退限制见 [A07 发布准备](docs/verification/a07-release-preparation.md)。账号版本 `4a4700e` 已于2026-10-04经授权正式发布，生产验证与人工待验项见 [发布记录](docs/verification/a07-production-release.md)。
+账号版本的发布顺序、独立入口开关、私有副本演练与回退限制见 [A07 发布准备](docs/verification/a07-release-preparation.md)。账号版本 `cd8d634` 已于2026-10-04经授权正式发布，生产验证与人工待验项见 [发布记录](docs/verification/a07-production-release.md)。
 
 - **整站**：使用 [Docker Compose 部署说明](deploy/README.md)，静态文件只发布生成的 `public/` 目录。
 - **运行配置**：API 地址与持久化数据集由私有环境生成 `runtime-config.js`；仓库默认单机运行。本地调试仍支持 loopback `?api=`。
