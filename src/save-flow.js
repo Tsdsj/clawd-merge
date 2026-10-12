@@ -54,8 +54,8 @@ export function createSaveFlow({ game, leaderboard, pauses, showModal, onNew, on
       $('restore-score').textContent=record.game.score.toLocaleString('zh-CN');
       $('restore-summary').textContent=`最高合成：${defOf(record.game.maxLevel).name} · 投放 ${record.game.drops} 次`;
       $('restore-time').textContent=`钳子 ×${record.game.claws} · ${new Date(record.savedAt).toLocaleString('zh-CN')} 保存`;
-      drawCrabIcon($('restore-current'),record.game.current,34,26,2);
-      drawCrabIcon($('restore-next'),record.game.next,34,26,2);
+      drawCrabIcon($('restore-current'),record.game.current,34,30,2,record.game.currentSpecial);
+      drawCrabIcon($('restore-next'),record.game.next,34,30,2,record.game.nextSpecial);
     }
     $('restore-detail').textContent=record?.online
       ? '继续在线局需核验原凭证；恢复不会续签或新建上榜机会。'

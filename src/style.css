@@ -245,8 +245,8 @@ button:focus-visible, input:focus-visible, .board:focus-visible { outline: 3px s
 }
 
 .next-box[data-special="gold"] #next { box-shadow: 0 0 0 2px #F7C948; border-radius: 6px; }
-.next-box[data-special="magnet"] #next { box-shadow: 0 0 0 2px #8FE3FF; border-radius: 6px; }
-.next-box[data-special="freeze"] #next { box-shadow: 0 0 0 2px #9FD8FF; border-radius: 6px; }
+.next-box[data-special="magnet"] #next { box-shadow: 0 0 0 2px #C0A0F2; border-radius: 6px; }
+.next-box[data-special="freeze"] #next { box-shadow: 0 0 0 2px #9FE6F1; border-radius: 6px; }
 
 .actions {
   display: flex;

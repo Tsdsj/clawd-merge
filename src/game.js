@@ -1,4 +1,4 @@
-import { World, Body } from './physics.js';
+import { World, Body, bodiesTouch } from './physics.js';
 import { captureGame, restoreGame } from './game-state.js';
 import { GameplayRandom } from './random.js';
 import { challengeSequence, SETTLE_SECONDS, STABLE_SECONDS } from './challenge.js';
@@ -37,7 +37,7 @@ const rand = (a, b) => a + Math.random() * (b - a);
 const easeOutBack = (t) => 1 + 2.9 * (t - 1) ** 3 + 1.9 * (t - 1) ** 2;
 const easeOut = (t) => 1 - (1 - t) ** 3;
 const RAINBOW_COLORS = ['#FF5E5B', '#FF9F43', '#FFD84D', '#5BD17A', '#4DB2FF', '#A77BFF'];
-const SPECIAL_COLORS = { gold: '#F7C948', magnet: '#8FE3FF', freeze: '#9FD8FF' };
+const SPECIAL_COLORS = { gold: '#F7C948', magnet: '#C0A0F2', freeze: '#9FE6F1' };
 
 // Haptics for touch devices; browsers reject vibration before a real tap.
 let hapticsReady = false;
@@ -117,6 +117,7 @@ export class Game {
   }
 
   reset() {
+    this.stopSpecialAudio();
     this.rulesVersion = this.defaultRulesVersion;
     this.paused = false;
     this.visualTime = 0;
@@ -171,6 +172,7 @@ export class Game {
   snapshot() { return captureGame(this); }
   restore(state, rulesVersion) {
     restoreGame(this,state,rulesVersion);
+    this.stopSpecialAudio();
     if (!this.persistPreferences) return;
     if(!writePreference(BEST_KEY,String(this.best)))this.persistenceWarning=true;
     if(!writePreference(SEEN_KEY,JSON.stringify([...this.seen])))this.persistenceWarning=true;
@@ -189,6 +191,7 @@ export class Game {
   }
 
   activeSpecialCount(kind) {
+    if (kind === 'freeze') return this.world.bodies.some(b => b.frozenUntil > this.time) ? 1 : 0;
     return this.world.bodies.reduce((n, b) => n + (b.special === kind && b.specialUntil > this.time ? 1 : 0), 0);
   }
 
@@ -283,6 +286,20 @@ export class Game {
     this.paused = paused;
     this.pendingDrop = false;
     this.acc = 0;
+    if (paused) this.stopSpecialAudio();
+  }
+
+  stopSpecialAudio() {
+    this.magnetSound?.stop();
+    this.magnetSound = null;
+  }
+
+  syncSpecialAudio() {
+    if (this.paused || this.over || this.choice || !this.activeSpecialCount('magnet')) {
+      this.stopSpecialAudio();
+    } else if (!this.magnetSound?.active) {
+      this.magnetSound = sfx.startMagnet();
+    }
   }
 
   update(dt) {
@@ -315,6 +332,7 @@ export class Game {
       if (this.feverTime === 0) this.events.onFever?.(false);
     }
     this.checkDanger(dt);
+    this.syncSpecialAudio();
     if (settlingAtStart && this.settling && !this.over) {
       this.pendingDrop = false;
       this.challenge.settlingTime = Math.min(SETTLE_SECONDS, this.challenge.settlingTime + dt);
@@ -324,9 +342,10 @@ export class Game {
     }
   }
 
-  // Special-carrier effects run inside the physics step: velocity nudges only,
-  // never solver changes, so pile stability is untouched.
+  // Update constraints/forces before the complete physics step. Frozen bodies
+  // resist waking, while magnetic movement still resolves ordinary contacts.
   updateSpecials(dt) {
+    const thawed = [];
     for (const b of this.world.bodies) {
       if (b.special === 'magnet' && !b.magnetArmed && (b.landedFor ?? 0) >= RULES.landedTime) {
         b.magnetArmed = true;
@@ -337,33 +356,49 @@ export class Game {
         b.froze = true;
         this.freezeCluster(b);
       }
-      if (b.frozenUntil > 0 && this.time >= b.frozenUntil && b.sleeping) {
+      if (b.frozenUntil > 0 && this.time >= b.frozenUntil) {
         b.frozenUntil = 0;
+        b.frozen = false;
         b.wake(); // 引擎会在真正静止后重新自然入睡
+        thawed.push(b);
+      }
+    }
+    if (thawed.length) {
+      sfx.thaw();
+      for (const b of thawed.slice(0, 8)) {
+        this.burst(b.x, b.y, 3, ['#9FE6F1', '#E7FAFF']);
+        this.ring(b.x, b.y, b.bound * 0.6, b.bound + 12, '#9FE6F1');
       }
     }
     for (const m of this.world.bodies) {
+      if (m.magnetTargets) m.magnetTargets.length = 0;
       if (m.special !== 'magnet' || !m.magnetArmed) continue;
       if (this.time >= m.specialUntil) {
         m.special = null;
+        sfx.magnetEnd();
+        this.ring(m.x, m.y, m.bound, m.bound + 20, SPECIAL_COLORS.magnet);
         continue;
       }
+      m.magnetTargets ??= [];
       for (const t of this.world.bodies) {
-        if (t === m || t.merged || t.level !== m.level) continue;
+        if (t === m || t.merged || t.frozen || t.level !== m.level) continue;
         const dx = m.x - t.x;
         const dy = m.y - t.y;
         const d = Math.hypot(dx, dy);
         if (d > SPECIALS.magnet.radius || d < 1) continue;
+        m.magnetTargets.push(t);
         t.wake();
-        t.vx += (dx / d) * SPECIALS.magnet.accel * dt;
-        t.vy += (dy / d) * SPECIALS.magnet.accel * dt;
+        const nx = dx / d, ny = dy / d;
+        const closingSpeed = t.vx * nx + t.vy * ny;
+        const impulse = Math.min(SPECIALS.magnet.accel * dt, Math.max(0, SPECIALS.magnet.maxSpeed - closingSpeed));
+        t.vx += nx * impulse;
+        t.vy += ny * impulse;
       }
     }
   }
 
-  // Force-sleep the carrier's geometrically connected pile. Sleeping bodies
-  // act static (island reuse); a falling partner still wakes them on contact,
-  // so frozen targets remain mergeable by design.
+  // Fix the actual touching pile. Frozen bodies use zero inverse mass, while
+  // the solver continues reporting contacts for normal same-level merges.
   freezeCluster(carrier) {
     const pile = this.world.bodies.filter((b) => b !== carrier);
     const queue = [carrier];
@@ -372,7 +407,7 @@ export class Game {
       const b = queue.pop();
       for (const o of pile) {
         if (seen.has(o)) continue;
-        if (Math.hypot(o.x - b.x, o.y - b.y) <= o.bound + b.bound + 4) {
+        if (bodiesTouch(b, o)) {
           seen.add(o);
           queue.push(o);
         }
@@ -381,6 +416,7 @@ export class Game {
     const until = this.time + SPECIALS.freeze.seconds;
     for (const b of seen) {
       b.frozenUntil = until;
+      b.frozen = true;
       if (!b.sleeping) b.sleep();
     }
     carrier.special = null;
@@ -433,6 +469,7 @@ export class Game {
 
   // classic-2: two proper kings freeze the board and let the player choose.
   beginChoice(a, b) {
+    this.stopSpecialAudio();
     this.choice = { a, b };
     this.events.onChoice?.();
   }
@@ -484,6 +521,7 @@ export class Game {
       Math.min(RULES.maxComboMult, 1 + RULES.comboStep * (this.combo - 1)) * (this.fever ? 2 : 1);
     const colors = rainbow ? RAINBOW_COLORS : null;
     const gold = consumed.some((b) => b.special === 'gold');
+    if (consumed.some(b => b.special === 'magnet' && b.magnetArmed)) sfx.magnetEnd(true);
 
     // Two kings (or a king + rainbow) ascend into a big bonus.
     if (level === MAX_LEVEL) {
@@ -538,8 +576,8 @@ export class Game {
       this.world.remove(b);
       this.world.wakeNear(b.x, b.y, b.bound + 20);
     }
-    this.crowns++;
-    const crowned = this.crowns >= CROWN_MAX;
+    if (this.specialRules) this.crowns++;
+    const crowned = this.specialRules && this.crowns >= CROWN_MAX;
     if (crowned) {
       this.crowns = 0;
       this.crownCycles++;
@@ -554,7 +592,7 @@ export class Game {
     if (crowned) sfx.crown();
     this.buzz(80);
     this.addFever(20);
-    this.events.onCrowns?.(this.crowns, this.crownCycles);
+    if (this.specialRules) this.events.onCrowns?.(this.crowns, this.crownCycles);
   }
 
   addFever(amount) {
@@ -689,6 +727,7 @@ export class Game {
     if (this.over) return;
     if (this.challenge) { this.challenge.phase = 'finished'; this.challenge.reason = reason; this.danger = Math.min(this.danger, RULES.gameOverTime); }
     this.over = true;
+    this.stopSpecialAudio();
     this.warning = 0;
     this.clawMode = false;
     if (this.feverTime > 0) {
@@ -860,11 +899,12 @@ export class Game {
   }
 
   // `size` scales the sprite; the pixel cache is rebuilt at that size so it stays crisp.
-  drawSprite(ctx, level, x, y, { angle = 0, size = 1, sx = 1, sy = 1, blink = false, frame = 0 } = {}) {
+  drawSprite(ctx, level, x, y, { angle = 0, size = 1, sx = 1, sy = 1, blink = false, frame = 0, special = null } = {}) {
     const cell = (defOf(level).width / BODY_COLS) * size;
     const sprite = getSprite(level, cell * this.scale * this.dpr, {
       blink,
       frame: level === RAINBOW ? frame : 0,
+      special,
     });
     ctx.save();
     ctx.translate(x, y);
@@ -896,38 +936,71 @@ export class Game {
       sy: pop * (1 - s),
       blink,
       frame: crab.level === RAINBOW ? this.rainbowFrame() : 0,
+      special: crab.special || (crab.froze && crab.frozenUntil > this.time ? 'freeze' : null),
     });
     this.drawSpecialOverlay(ctx, crab);
   }
 
   drawSpecialOverlay(ctx, crab) {
-    if (crab.special === 'gold') {
+    if (crab.special === 'gold' && this.effects.particles) {
       ctx.save();
-      ctx.globalAlpha = 0.22 + (this.effects.reduced ? 0 : 0.08 * Math.sin(this.visualTime * 6));
-      ctx.fillStyle = '#F7C948';
-      ctx.beginPath();
-      ctx.arc(crab.x, crab.y, crab.bound * 0.85, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillStyle = '#FFF0B0';
+      const phase = this.effects.reduced ? 0 : this.visualTime * 2;
+      for (let i=0; i<3; i++) {
+        const a = phase + i * Math.PI * 2 / 3;
+        const x = crab.x + Math.cos(a) * (crab.bound + 5);
+        const y = crab.y + Math.sin(a) * (crab.bound * 0.7 + 5);
+        ctx.fillRect(x-3,y-1,6,2);ctx.fillRect(x-1,y-3,2,6);
+      }
       ctx.restore();
     } else if (crab.special === 'magnet' && crab.magnetArmed && this.time < crab.specialUntil) {
       ctx.save();
-      ctx.strokeStyle = 'rgba(143, 227, 255, 0.35)';
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 6]);
+      ctx.strokeStyle = 'rgba(192,160,242,0.22)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 7]);
+      ctx.lineDashOffset = this.effects.reduced ? 0 : -this.visualTime * 12;
       ctx.beginPath();
       ctx.arc(crab.x, crab.y, SPECIALS.magnet.radius, 0, Math.PI * 2);
       ctx.stroke();
+      ctx.setLineDash([]);
+      for (const target of crab.magnetTargets ?? []) {
+        if (target.merged || target.frozen) continue;
+        ctx.strokeStyle = 'rgba(192,160,242,0.35)';
+        ctx.beginPath();ctx.moveTo(target.x,target.y);ctx.lineTo(crab.x,crab.y);ctx.stroke();
+        ctx.fillStyle = '#E3CFFF';
+        const t = this.effects.reduced ? 0.5 : (this.visualTime * 1.4) % 1;
+        ctx.fillRect(target.x+(crab.x-target.x)*t-2,target.y+(crab.y-target.y)*t-2,4,4);
+      }
       ctx.restore();
+      this.drawSpecialTimer(ctx, crab, crab.specialUntil - this.time, SPECIALS.magnet.seconds, SPECIAL_COLORS.magnet);
     }
     if (crab.frozenUntil > this.time) {
       ctx.save();
-      ctx.globalAlpha = 0.3;
-      ctx.fillStyle = '#9FD8FF';
+      ctx.translate(crab.x, crab.y);ctx.rotate(crab.angle);
+      const w = defOf(crab.level).width * 0.56, h = defOf(crab.level).width * 0.36;
+      ctx.fillStyle = 'rgba(159,230,241,0.18)';
+      ctx.strokeStyle = 'rgba(208,248,255,0.9)';ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(crab.x, crab.y, crab.bound + 3, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.moveTo(-w+5,-h);ctx.lineTo(w-5,-h);ctx.lineTo(w,-h+5);ctx.lineTo(w,h-5);
+      ctx.lineTo(w-5,h);ctx.lineTo(-w+5,h);ctx.lineTo(-w,h-5);ctx.lineTo(-w,-h+5);ctx.closePath();
+      ctx.fill();ctx.stroke();
+      ctx.strokeStyle = 'rgba(231,250,255,0.65)';
+      ctx.beginPath();ctx.moveTo(-w+5,-h+9);ctx.lineTo(-w+12,-h+2);ctx.stroke();
       ctx.restore();
+      if (crab.froze) this.drawSpecialTimer(ctx, crab, crab.frozenUntil - this.time, SPECIALS.freeze.seconds, SPECIAL_COLORS.freeze);
     }
+  }
+
+  drawSpecialTimer(ctx, crab, remaining, total, color) {
+    const width = Math.max(28, Math.min(48, defOf(crab.level).width));
+    const x = clamp(crab.x - width/2, 2, WORLD_W-width-2);
+    const y = Math.max(16, crab.y - defOf(crab.level).width * 0.8 - 12);
+    ctx.save();
+    ctx.fillStyle = 'rgba(16,17,30,0.85)';ctx.fillRect(x-2,y-2,width+4,8);
+    ctx.fillStyle = color;ctx.fillRect(x,y,width*Math.max(0,Math.min(1,remaining/total)),4);
+    ctx.font = `700 9px ${FONT}`;ctx.textAlign = 'center';
+    ctx.fillText(`${Math.max(0,remaining).toFixed(1)}s`, x+width/2, y-4);
+    ctx.restore();
   }
 
   drawHitboxes(ctx) {
@@ -962,12 +1035,14 @@ export class Game {
 
     const bob = this.effects.reduced ? 0 : Math.sin(this.visualTime / 0.25) * 1.5;
     const s = this.effects.reduced ? 1 : 0.6 + 0.4 * easeOutBack((t - 0.5) / 0.5);
-    this.drawSprite(ctx, level, x, DROP_Y + bob, { sx: s, sy: s, frame: this.rainbowFrame() });
+    this.drawSprite(ctx, level, x, DROP_Y + bob, { sx: s, sy: s, frame: this.rainbowFrame(), special: this.currentSpecial });
     if (this.currentSpecial) {
+      ctx.save();
       ctx.fillStyle = SPECIAL_COLORS[this.currentSpecial];
-      ctx.beginPath();
-      ctx.arc(x + extentOf(level).right + 10, DROP_Y + bob, 4, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.textAlign = 'center';ctx.font = `700 10px ${FONT}`;
+      const label = {gold:'金色 · 合成 ×2',magnet:'磁力 · 同级吸附',freeze:'冰冻 · 稳定 3 秒'}[this.currentSpecial];
+      ctx.fillText(label,clamp(x,48,WORLD_W-48),DROP_Y+extentOf(level).halfH+17);
+      ctx.restore();
     }
   }
 

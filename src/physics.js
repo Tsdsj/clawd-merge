@@ -43,6 +43,8 @@ export class Body {
     this.im = this.invMass;
     this.ii = this.invI;
     this.sleeping = false;
+    // A gameplay freeze is a fixed constraint, not ordinary island sleep.
+    this.frozen = false;
     this.stillTime = 0;
     this.restX = x;
     this.restY = y;
@@ -64,6 +66,7 @@ export class Body {
   }
 
   wake() {
+    if (this.frozen) return;
     if (!this.sleeping) return;
     this.sleeping = false;
     this.stillTime = 0;
@@ -79,6 +82,17 @@ export class Body {
       sh.oy = sh.lx * s + sh.ly * c;
     }
   }
+}
+
+// Sleeping pairs have no cached contacts. Use the same compound geometry and
+// speculative margin as collide() when finding a connected frozen pile.
+export function bodiesTouch(a, b) {
+  const reach = a.bound + b.bound + config.margin;
+  if ((a.x-b.x)**2 + (a.y-b.y)**2 > reach*reach) return false;
+  return a.shapes.some(sa => b.shapes.some(sb => {
+    const r = sa.r + sb.r + config.margin;
+    return (a.x+sa.ox-b.x-sb.ox)**2 + (a.y+sa.oy-b.y-sb.oy)**2 <= r*r;
+  }));
 }
 
 // Indices of `body`'s shapes that come within reach of `other`'s bounding circle.
@@ -254,7 +268,9 @@ export class World {
         const dy = b.y - a.y;
         const reach = a.bound + b.bound + config.margin;
         if (dx * dx + dy * dy > reach * reach) continue;
-        if (a.sleeping && b.sleeping) continue;
+        // Frozen bodies stay fixed, but contacts must still reach the merge
+        // detector, including a frozen pair and a resting matching neighbour.
+        if (a.sleeping && b.sleeping && !a.frozen && !b.frozen) continue;
         // Something moving touches a sleeper: wake it now, before solving, so it
         // doesn't act as an immovable wall this step (updateSleep then wakes the rest
         // of its island).

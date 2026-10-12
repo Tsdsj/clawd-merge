@@ -69,11 +69,10 @@ const legend = [...LEVELS.map((_, i) => i + 1), RAINBOW].map((level) => {
   return { level, item, icon, name };
 });
 
-const SPECIAL_COLORS = { gold: '#F7C948', magnet: '#8FE3FF', freeze: '#9FD8FF' };
 const SPECIAL_INFO = {
   gold: { name: '金色Clawd', tip: '金色 Clawd：它参与的那次合成，得分 ×2！' },
-  magnet: { name: '磁力Clawd', tip: '磁力 Clawd：落地后短暂吸附同级，帮你完成差一点的合成。' },
-  freeze: { name: '冰冻Clawd', tip: '冰冻 Clawd：落地冻结一堆，几秒内稳如泰山。' },
+  magnet: { name: '磁力Clawd', tip: '磁力 Clawd：落地后吸附附近同级 2.5 秒，碰到障碍仍会被挡住。' },
+  freeze: { name: '冰冻Clawd', tip: '冰冻 Clawd：落地锁定接触的一堆 3 秒，同级仍能合成，危险倒计时照常。' },
 };
 const specialLegend = SPECIAL_KINDS.map((kind) => {
   const item = document.createElement('div');
@@ -91,14 +90,16 @@ let dpr = 1;
 let overTimer = 0;
 
 function drawSpecialLegendIcon(icon, kind, locked) {
-  drawLegendIcon(icon, 3, dpr, locked);
-  const ctx = icon.getContext('2d');
-  ctx.save();
-  ctx.globalCompositeOperation = 'source-atop';
-  ctx.globalAlpha = locked ? 0.35 : 0.5;
-  ctx.fillStyle = SPECIAL_COLORS[kind];
-  ctx.fillRect(0, 0, icon.width, icon.height);
-  ctx.restore();
+  drawLegendIcon(icon, 3, dpr, locked, kind);
+}
+
+function drawNext(level, special) {
+  drawCrabIcon(nextCanvas, level, 34, 30, dpr, special);
+  nextBox.dataset.special = special || '';
+  const label = special ? `${SPECIAL_INFO[special].name} · ${defOf(level).name}` : defOf(level).name;
+  nextBox.title = label;
+  nextCanvas.setAttribute('role', 'img');
+  nextCanvas.setAttribute('aria-label', `下一个：${label}`);
 }
 
 function drawLegend() {
@@ -127,8 +128,7 @@ const game = new Game(canvas, {
     bestEl.textContent = best;
   },
   onNext(level, special) {
-    drawCrabIcon(nextCanvas, level, 34, 24, dpr);
-    nextBox.dataset.special = special || '';
+    drawNext(level, special);
     if (special) featureTip(special, SPECIAL_INFO[special].tip);
     else if (level === RAINBOW) featureTip('rainbow', '彩虹 Clawd：碰到谁，就让谁升一级。');
   },
@@ -565,7 +565,7 @@ function layout() {
   dpr = Math.min(window.devicePixelRatio || 1, 3);
   // Icons first: they affect the legend's height and thus the space left for the board.
   drawLegend();
-  drawCrabIcon(nextCanvas, game.next, 34, 24, dpr);
+  drawNext(game.next, game.nextSpecial);
   const rect = stage.getBoundingClientRect();
   const availW = rect.width - 8;
   const availH = rect.height - 8;
@@ -732,7 +732,7 @@ saves = createSaveFlow({
     roundVersion++;
     clearTimeout(overTimer);overlay.classList.add('hidden');finalRank.classList.add('hidden');
     scoreEl.textContent=game.score;bestEl.textContent=game.best;
-    drawCrabIcon(nextCanvas,game.next,34,24,dpr);drawLegend();
+    drawNext(game.next,game.nextSpecial);drawLegend();
     for(const {level,item} of legend)item.classList.toggle('reached',level>=1 && level<=game.maxLevel);
     $('claw-count').textContent=game.claws;clawBtn.classList.remove('active');board.classList.remove('claw-mode');
     board.classList.toggle('fever',game.fever);

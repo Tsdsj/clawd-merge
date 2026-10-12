@@ -4,6 +4,28 @@ import { readPreference, writePreference } from './storage.js';
 const KEY = 'clawd-merge:sound';
 let ctx = null;
 let enabled = readPreference(KEY) !== 'off';
+const voices = new Set();
+
+function track(ac, sources, gain) {
+  const voice = {
+    active: true,
+    stop() {
+      if (!voice.active) return;
+      voice.active = false;
+      voices.delete(voice);
+      const now = ac.currentTime;
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setTargetAtTime(0.0001, now, 0.008);
+      for (const source of sources) source.stop(now + 0.04);
+    },
+  };
+  let ended = 0;
+  for (const source of sources) source.onended = () => {
+    if (++ended === sources.length) { voice.active = false; voices.delete(voice); }
+  };
+  voices.add(voice);
+  return voice;
+}
 
 function audio() {
   if (!enabled) return null;
@@ -28,8 +50,32 @@ function blip(freq, { at = 0, dur = 0.08, type = 'square', vol = 0.05, to } = {}
   gain.gain.setValueAtTime(vol, t);
   gain.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   osc.connect(gain).connect(ac.destination);
+  track(ac, [osc], gain);
   osc.start(t);
   osc.stop(t + dur + 0.02);
+}
+
+// Short, deterministic high-passed grain gives ice a brittle attack without
+// introducing asset downloads or consuming the gameplay random sequence.
+function crackle(duration, volume) {
+  const ac = audio();
+  if (!ac) return;
+  const buffer = ac.createBuffer(1, Math.ceil(ac.sampleRate * duration), ac.sampleRate);
+  const data = buffer.getChannelData(0);
+  let seed = 7391;
+  for (let i=0; i<data.length; i++) {
+    seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0;
+    data[i] = (seed / 0x80000000 - 1) * (0.35 + 0.65 * Math.abs(Math.sin(i / ac.sampleRate * 110)));
+  }
+  const source = ac.createBufferSource(); source.buffer = buffer;
+  const filter = ac.createBiquadFilter(); filter.type = 'highpass'; filter.frequency.value = 1800;
+  const gain = ac.createGain();
+  const now = ac.currentTime;
+  gain.gain.setValueAtTime(volume, now);
+  gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
+  source.connect(filter).connect(gain).connect(ac.destination);
+  track(ac, [source], gain);
+  source.start(now); source.stop(now + duration + 0.02);
 }
 
 export const sfx = {
@@ -39,6 +85,7 @@ export const sfx = {
   toggle() {
     enabled = !enabled;
     writePreference(KEY, enabled ? 'on' : 'off');
+    if (!enabled) for (const voice of [...voices]) voice.stop();
     if (enabled) blip(660, { dur: 0.06 });
     return enabled;
   },
@@ -85,13 +132,38 @@ export const sfx = {
     blip(440, { at: 0.1, dur: 0.25, to: 80, type: 'triangle', vol: 0.06 });
   },
   gold() {
-    blip(880, { dur: 0.07 });
-    blip(1320, { at: 0.07, dur: 0.09, vol: 0.06 });
+    blip(880, { dur: 0.22, type: 'triangle', vol: 0.05 });
+    blip(1760, { dur: 0.16, type: 'sine', vol: 0.035 });
+    blip(2640, { at: 0.045, dur: 0.12, type: 'sine', vol: 0.025 });
   },
   magnet() {
-    blip(220, { dur: 0.3, to: 330, type: 'triangle', vol: 0.05 });
+    blip(165, { dur: 0.16, to: 330, type: 'triangle', vol: 0.035 });
+  },
+  startMagnet() {
+    const ac = audio();
+    if (!ac) return null;
+    const now = ac.currentTime, gain = ac.createGain();
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.linearRampToValueAtTime(0.018, now + 0.07);
+    gain.connect(ac.destination);
+    // A two-hertz beat conveys a gently pulsing field at a low mix level.
+    const sources = [110, 112].map(frequency => {
+      const osc = ac.createOscillator(); osc.type = 'triangle';
+      osc.frequency.value = frequency; osc.connect(gain); osc.start(now);
+      return osc;
+    });
+    return track(ac, sources, gain);
+  },
+  magnetEnd(merged = false) {
+    blip(330, { dur: 0.14, to: 110, type: 'triangle', vol: 0.025 });
+    if (merged) blip(990, { dur: 0.09, type: 'sine', vol: 0.035 });
   },
   freeze() {
-    [1568, 1245, 988].forEach((f, i) => blip(f, { at: i * 0.05, dur: 0.1, type: 'triangle', vol: 0.05 }));
+    crackle(0.2, 0.065);
+    [1568, 1245, 988].forEach((f, i) => blip(f, { at: i * 0.045, dur: 0.12, type: 'sine', vol: 0.035 }));
+  },
+  thaw() {
+    crackle(0.16, 0.045);
+    blip(1175, { dur: 0.12, to: 1760, type: 'sine', vol: 0.025 });
   },
 };

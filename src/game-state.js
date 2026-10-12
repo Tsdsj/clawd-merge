@@ -63,7 +63,9 @@ export function captureGame(g) {
     .map(c => ({ a: c.a === g.world.wall ? -1 : indexes.get(c.a), b:indexes.get(c.b),
       ...pick(c,['ia','ib','nx','ny','pen','px','py','Pn','Pt']) }));
   return validateGameState({ ...pick(g,fields), ...(g.challenge ? { challenge: { ...g.challenge } } : { rulesVersion: g.rulesVersion }), gameplayRandom:g.gameplayRandom.snapshot(), lastMergeAt: Number.isFinite(g.lastMergeAt) ? g.lastMergeAt : null,
-    seen:[...g.seen], bodies:g.world.bodies.map(b => pick(b,bodyFields)), contacts });
+    // Timed constraints expire on restore. Do not serialize a frozen body as
+    // naturally asleep: it may be suspended above a support removed meanwhile.
+    seen:[...g.seen], bodies:g.world.bodies.map(b => ({...pick(b,bodyFields), ...(b.frozen ? {sleeping:false,stillTime:0} : {})})), contacts });
 }
 
 export function restoreGame(g, state, rulesVersion) {
@@ -96,8 +98,8 @@ export function restoreGame(g, state, rulesVersion) {
   g.currentSpecial = state.currentSpecial ?? null;
   g.nextSpecial = state.nextSpecial ?? null;
   g.specialLastAt = { ...(state.specialLastAt ?? {}) };
-  g.crowns = state.crowns ?? 0;
-  g.crownCycles = state.crownCycles ?? 0;
+  g.crowns = g.specialRules ? state.crowns ?? 0 : 0;
+  g.crownCycles = g.specialRules ? state.crownCycles ?? 0 : 0;
   g.choice = null;
   if (state.challenge) g.challenge = { ...state.challenge };
   g.lastMergeAt = state.lastMergeAt ?? -Infinity;

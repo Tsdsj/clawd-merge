@@ -196,7 +196,9 @@ test('freeze sleeps the connected pile, times out, and frozen crabs still merge'
   const carrier = g.spawnCrab(2, 200, 500);
   carrier.special = 'freeze'; carrier.landedFor = 0.2;
   const neighbour = g.spawnCrab(3, 200, 500);
-  neighbour.y = 500 - carrier.bound - neighbour.bound; // 表面紧贴，必在冻结半径内
+  neighbour.y = carrier.y - 30; // 复合碰撞圆实际接触；外包围圆相邻并不代表接触
+  g.world.collide();
+  assert.ok(g.world.contacts.some(c => c.a === carrier && c.b === neighbour));
   const distant = g.spawnCrab(3, 60, 500);
   g.updateSpecials(1 / 120);
   assert.equal(carrier.special, null); // 效果已花在冻结上

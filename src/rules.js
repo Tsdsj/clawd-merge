@@ -43,7 +43,9 @@ export const SPECIALS = Object.freeze({
   weights: Object.freeze({ rainbow: 44, gold: 24, magnet: 19, freeze: 13 }),
   kindCooldown: 25,
   maxActive: Object.freeze({ magnet: 1, freeze: 1 }),
-  magnet: Object.freeze({ seconds: 2.5, radius: 130, accel: 320 }),
+  // Strong enough to overcome grounded contact friction; radial velocity is
+  // bounded separately, and all movement still passes through the solver.
+  magnet: Object.freeze({ seconds: 2.5, radius: 130, accel: 1100, maxSpeed: 100 }),
   freeze: Object.freeze({ seconds: 3 }),
 });
 export const CROWN_MAX = 3;

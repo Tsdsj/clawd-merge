@@ -290,7 +290,20 @@ export function hitboxOf(level) {
   }));
 }
 
-function compose(level, blink, frame) {
+// Decorative badges share the original pixel grid; collision geometry stays
+// tied to the carrier's ordinary level.
+const SPECIAL_BADGES = {
+  gold: {x:5,y:-7,art:['..Y..','.YWY.','YWWWY','.YyY.','..y..']},
+  magnet: {x:5,y:-7,art:['WW.WW','RR.UU','RR.UU','RR.UU','.VVV.','..V..']},
+  freeze: {x:5,y:-7,art:['L.L.L','.LLL.','LLLLL','.LLL.','L.L.L']},
+};
+const SPECIAL_TINTS = {
+  gold: ['#FFE08A','#E8B53A','#BE812D'],
+  magnet: ['#D1B8F3','#AF8DDE','#805CAB'],
+  freeze: ['#E1FAFF','#91DDEC','#58ADC9'],
+};
+
+function compose(level, blink, frame, special) {
   const cells = new Map();
   const put = (x, y, ch) => {
     if (ch === '.') return;
@@ -312,6 +325,8 @@ function compose(level, blink, frame) {
     });
   }
 
+  const badge = SPECIAL_BADGES[special];
+  if (badge) badge.art.forEach((row, y) => [...row].forEach((ch, x) => put(badge.x+x, badge.y+y, ch)));
   const list = [...cells.values()];
   const xs = list.map((c) => c.x);
   const ys = list.map((c) => c.y);
@@ -327,9 +342,9 @@ function compose(level, blink, frame) {
 }
 
 const layoutCache = new Map();
-function getLayout(level, blink, frame = 0) {
-  const key = `${level}:${blink ? 1 : 0}:${frame}`;
-  if (!layoutCache.has(key)) layoutCache.set(key, compose(level, blink, frame));
+function getLayout(level, blink, frame = 0, special = null) {
+  const key = `${level}:${blink ? 1 : 0}:${frame}:${special ?? ''}`;
+  if (!layoutCache.has(key)) layoutCache.set(key, compose(level, blink, frame, special));
   return layoutCache.get(key);
 }
 
@@ -341,19 +356,21 @@ export function clearSpriteCache() {
 
 // Renders a Clawd with `cellPx` device pixels per art cell (cached).
 // `silhouette` paints every pixel one flat colour (locked collection entries).
-export function getSprite(level, cellPx, { blink = false, frame = 0, silhouette = false } = {}) {
+export function getSprite(level, cellPx, { blink = false, frame = 0, silhouette = false, special = null } = {}) {
   const px = Math.max(1, Math.round(cellPx));
-  const key = `${level}:${px}:${blink ? 1 : 0}:${frame}:${silhouette ? 1 : 0}`;
+  const key = `${level}:${px}:${blink ? 1 : 0}:${frame}:${silhouette ? 1 : 0}:${special ?? ''}`;
   let sprite = spriteCache.get(key);
   if (!sprite) {
-    const layout = getLayout(level, blink, frame);
+    const layout = getLayout(level, blink, frame, special);
     const canvas = document.createElement('canvas');
     canvas.width = layout.cols * px;
     canvas.height = layout.rows * px;
     const ctx = canvas.getContext('2d');
     const body = defOf(level).color ?? PALETTE['#'];
     for (const { x, y, ch } of layout.cells) {
-      ctx.fillStyle = silhouette ? '#3A3B55' : ch === '#' ? body : PALETTE[ch];
+      const tint = SPECIAL_TINTS[special];
+      const bodyColor = tint ? tint[y < 3 ? 0 : y < 7 ? 1 : 2] : body;
+      ctx.fillStyle = silhouette ? '#3A3B55' : ch === '#' ? bodyColor : PALETTE[ch];
       ctx.fillRect((x - layout.minX) * px, (y - layout.minY) * px, px, px);
     }
     sprite = { canvas, minX: layout.minX, minY: layout.minY, cols: layout.cols, rows: layout.rows };
@@ -363,14 +380,14 @@ export function getSprite(level, cellPx, { blink = false, frame = 0, silhouette 
 }
 
 // Draws a Clawd centred and bottom-aligned inside a small canvas ("next" box).
-export function drawCrabIcon(canvas, level, cssW, cssH, dpr) {
+export function drawCrabIcon(canvas, level, cssW, cssH, dpr, special = null) {
   canvas.width = Math.round(cssW * dpr);
   canvas.height = Math.round(cssH * dpr);
   canvas.style.width = `${cssW}px`;
   canvas.style.height = `${cssH}px`;
-  const layout = getLayout(level, false);
+  const layout = getLayout(level, false, 0, special);
   const px = Math.max(1, Math.floor(Math.min(canvas.width / layout.cols, canvas.height / layout.rows)));
-  const sprite = getSprite(level, px);
+  const sprite = getSprite(level, px, {special});
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(
@@ -381,9 +398,9 @@ export function drawCrabIcon(canvas, level, cssW, cssH, dpr) {
 }
 
 // Legend icons share one cell size so the Clawds compare fairly (hats stick out).
-export function drawLegendIcon(canvas, level, dpr, locked = false) {
+export function drawLegendIcon(canvas, level, dpr, locked = false, special = null) {
   const px = Math.max(1, Math.round(1.3 * dpr));
-  const sprite = getSprite(level, px, { silhouette: locked });
+  const sprite = getSprite(level, px, { silhouette: locked, special });
   canvas.width = sprite.canvas.width;
   canvas.height = sprite.canvas.height;
   canvas.style.width = `${sprite.canvas.width / dpr}px`;
