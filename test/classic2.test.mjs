@@ -119,3 +119,14 @@ test('challenge drops never carry specials', () => {
   assert.equal(c.currentSpecial, null);
   assert.equal(c.nextSpecial, null);
 });
+
+test('special cooldown anchors survive a snapshot restore', () => {
+  const g = new Game({ getContext: () => ({}) }, {}, { seed: 3 });
+  g.drops = 20;
+  g.specialLastAt = { gold: 20 };
+  const h = new Game({ getContext: () => ({}) }, {}, { seed: 4 });
+  h.restore(JSON.parse(JSON.stringify(g.snapshot())));
+  assert.deepEqual(h.specialLastAt, { gold: 20 });
+  h.specialLastAt.gold = 99;
+  assert.equal(g.specialLastAt.gold, 20); // 恢复为独立副本，不共享原对象
+});
