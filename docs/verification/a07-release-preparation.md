@@ -52,14 +52,22 @@ node scripts/rehearse-account-release.mjs --source "$PRIVATE_BACKUP_COPY" --out-
      "$IMAGE" /check.mjs --image "$IMAGE" --require-password-service
    ```
 
-6. 安排维护窗口；不承诺零停机。停止旧 api 与周期 backup 后，创建本窗口备份，写入独立 release 子目录，避免被常规14天轮转清理。运行备份必须加 `--no-deps`，不得意外重启旧 API：
+6. 安排维护窗口；不承诺零停机。停止旧 api 与周期 backup 后，创建本窗口备份，写入独立 release 子目录，避免被常规14天轮转清理。一次性备份使用显式 `docker run --mount`，不触发 Compose 依赖，也不依赖 `compose run -v :rw` 覆盖服务的只读挂载（2026-10-12 实测后者仍为只读）。`CURRENT_IMAGE` 取停写前 API 实际镜像，两个目录取当前真实挂载：
 
    ```bash
    compose stop api backup
-   compose run --rm --no-deps --entrypoint node -v "$PRIVATE_DATA_DIR:/data:rw" -e "BACKUP_DIR=/backups/release-$RELEASE" backup server/backup.mjs
+   docker run --rm --network none --read-only --user 1000:1000 \
+     --cap-drop ALL --security-opt no-new-privileges --cpus 1 --memory 256m --pids-limit 64 \
+     --tmpfs /tmp:size=16m \
+     --mount "type=bind,src=$PRIVATE_DATA_DIR,dst=/data" \
+     --mount "type=bind,src=$PRIVATE_BACKUPS_DIR,dst=/backups" \
+     -e "BACKUP_DIR=/backups/release-$RELEASE" \
+     --entrypoint node "$CURRENT_IMAGE" server/backup.mjs
    ```
 
    `PRIVATE_DATA_DIR` 必须取自当前 API 的真实数据挂载。停止写入后，SQLite 可能需要重建 WAL/SHM 配套文件；本次一次性备份允许该目录写入，但脚本的数据库连接仍为 `readOnly:true`。不要把周期备份服务改成永久可写。核对备份完整性、权限和可恢复性。禁止直接复制运行中的 WAL 主文件作为备份。
+涉及 shell 函数的发布脚本使用 `set -Eeuo pipefail`，让函数内部失败也触发 `ERR` 回退；失败后先确认任务和服务实际状态，不盲目重发。零字节失败产物不能作为备份使用，保留并明确标记。
+
 7. 先启动兼容 api，由迁移器应用新增 schema；核对健康、迁移记录和日志。`/api/auth/capabilities` 应为 `passwordEnabled=true`、`registrationEnabled=false`；读取已有账号资料、榜单与原资格，不能只以 `/api/health` 的200判定密码服务已就绪。
 8. 再切换前端。静态目录使用固定版本路径，并重建 web 以更新 bind mount；不能假设换宿主 symlink 会自动更新既有容器挂载。核对外部 HTTPS、页面/API、实际资源 SHA、CSP 和浏览器来源，然后恢复周期 backup。Caddy、80/443、SSH、防火墙不随应用发布调整。
 9. 观察兼容阶段通过后，按授权将两个新入口开关置1并重建 api；保持完整 Compose 组合、同一 keyring 和数据目录。最终核对 capabilities、错误码与成绩/次数归属。真实账号验收仅按用户明确允许的范围执行。

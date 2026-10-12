@@ -57,3 +57,5 @@
 - [受阻场景](../../test-results/classic2-feedback/pile-blocked.png)
 - [提前消耗场景](../../test-results/classic2-feedback/pile-consumed.png)
 - [正常游戏移动视口](../../test-results/classic2-feedback/game-mobile.png)
+
+后续状态：2026-10-12 用户另行授权部署，产品提交 `396c789` 已上线，见 [发布记录](classic-2-feedback-release.md)。本文保留此前本地验证时的范围与证据。
