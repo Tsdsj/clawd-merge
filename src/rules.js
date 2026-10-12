@@ -39,8 +39,8 @@ export const CLASSIC_RULES_VERSIONS = ['classic-1', 'classic-2'];
 export const SPECIAL_KINDS = Object.freeze(['gold', 'magnet', 'freeze']);
 export const SPECIALS = Object.freeze({
   minDrops: 12,
-  chance: 0.06,
-  weights: Object.freeze({ rainbow: 40, gold: 25, magnet: 20, freeze: 15 }),
+  chance: 0.08,
+  weights: Object.freeze({ rainbow: 44, gold: 24, magnet: 19, freeze: 13 }),
   kindCooldown: 25,
   maxActive: Object.freeze({ magnet: 1, freeze: 1 }),
   magnet: Object.freeze({ seconds: 2.5, radius: 130, accel: 320 }),
