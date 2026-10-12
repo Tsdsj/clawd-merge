@@ -33,3 +33,18 @@ export const CHALLENGE_RULES = Object.freeze({
   firstRainbowIndex: RAINBOW_MIN_DROPS + 1,
   consecutiveRainbows: false,
 });
+
+// classic-2 特殊掉落与后期目标；classic-1 行为保持在其版本内不变。
+export const CLASSIC_RULES_VERSIONS = ['classic-1', 'classic-2'];
+export const SPECIAL_KINDS = Object.freeze(['gold', 'magnet', 'freeze']);
+export const SPECIALS = Object.freeze({
+  minDrops: 12,
+  chance: 0.06,
+  weights: Object.freeze({ rainbow: 40, gold: 25, magnet: 20, freeze: 15 }),
+  kindCooldown: 25,
+  maxActive: Object.freeze({ magnet: 1, freeze: 1 }),
+  magnet: Object.freeze({ seconds: 2.5, radius: 130, accel: 320 }),
+  freeze: Object.freeze({ seconds: 3 }),
+});
+export const CROWN_MAX = 3;
+export const CROWN_BONUS = 5000;
