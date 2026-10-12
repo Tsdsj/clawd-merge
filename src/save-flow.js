@@ -1,6 +1,6 @@
 import { SaveStore } from './save-store.js';
 import { getStorage } from './storage.js';
-import { defOf, drawCrabIcon } from './crabs.js';
+import { defOf, drawCrabIcon, clawdLabel } from './crabs.js';
 
 // Coordinates ownership, recovery choices and persistence. Physics stays in Game.
 export function createSaveFlow({ game, leaderboard, pauses, showModal, onNew, onRestored, onLost, isSubmitting,
@@ -56,6 +56,8 @@ export function createSaveFlow({ game, leaderboard, pauses, showModal, onNew, on
       $('restore-time').textContent=`钳子 ×${record.game.claws} · ${new Date(record.savedAt).toLocaleString('zh-CN')} 保存`;
       drawCrabIcon($('restore-current'),record.game.current,34,30,2,record.game.currentSpecial);
       drawCrabIcon($('restore-next'),record.game.next,34,30,2,record.game.nextSpecial);
+      $('restore-current-label').textContent=`当前 · ${clawdLabel(record.game.current,record.game.currentSpecial)}`;
+      $('restore-next-label').textContent=`下个 · ${clawdLabel(record.game.next,record.game.nextSpecial)}`;
     }
     $('restore-detail').textContent=record?.online
       ? '继续在线局需核验原凭证；恢复不会续签或新建上榜机会。'

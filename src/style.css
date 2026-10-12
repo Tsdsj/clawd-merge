@@ -125,6 +125,7 @@ body {
 .save-card > b { font-size: 32px; color: #f0bc9d; }
 .save-card p { font-size: 12px; line-height: 1.7; color: #c3bbcf; }
 .restore-pieces { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 10px 0; font-size: 11px; color: #c3bbcf; }
+.restore-piece { display: grid; justify-items: center; gap: 5px; min-width: 0; }
 .btn.ghost.danger-btn { color: white; background: #a54f40; box-shadow: 0 3px #74382e; }
 .game-paused .board, .game-paused .board *, .game-paused #score, .game-paused .claw-btn { animation-play-state: paused; }
 .btn:disabled { opacity: 0.5; cursor: default; }
@@ -247,6 +248,8 @@ button:focus-visible, input:focus-visible, .board:focus-visible { outline: 3px s
 .next-box[data-special="gold"] #next { box-shadow: 0 0 0 2px #F7C948; border-radius: 6px; }
 .next-box[data-special="magnet"] #next { box-shadow: 0 0 0 2px #C0A0F2; border-radius: 6px; }
 .next-box[data-special="freeze"] #next { box-shadow: 0 0 0 2px #9FE6F1; border-radius: 6px; }
+#next-label { font-size: 10px; color: var(--text); }
+.special-status { min-height: 44px; margin: 6px 0 0; padding: 5px 8px; border-left: 2px solid #b798cf; background: rgba(192,160,242,.06); color: #ded5e8; font-size: 12px; line-height: 1.4; }
 
 .actions {
   display: flex;

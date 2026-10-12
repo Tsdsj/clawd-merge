@@ -1,6 +1,6 @@
 import { Game, WORLD_W, WORLD_H, enableHaptics } from './game.js';
 import { SPECIAL_KINDS } from './rules.js';
-import { LEVELS, RAINBOW, defOf, drawCrabIcon, drawLegendIcon } from './crabs.js';
+import { LEVELS, RAINBOW, defOf, drawCrabIcon, drawLegendIcon, clawdLabel, levelLabel } from './crabs.js';
 import { sfx } from './audio.js';
 import { leaderboard, displayName } from './leaderboard.js';
 import { createGuide } from './onboarding.js';
@@ -80,7 +80,8 @@ const specialLegend = SPECIAL_KINDS.map((kind) => {
   item.dataset.special = kind;
   const icon = document.createElement('canvas');
   const name = document.createElement('span');
-  name.textContent = SPECIAL_INFO[kind].name;
+  name.textContent = `${SPECIAL_INFO[kind].name.replace('Clawd','')}能力`;
+  item.title = '可附着在 1–5 级；图标为 3级咖啡示例，合成仍看基础等级';
   item.append(icon, name);
   $('legend').append(item);
   return { kind, item, icon };
@@ -96,7 +97,8 @@ function drawSpecialLegendIcon(icon, kind, locked) {
 function drawNext(level, special) {
   drawCrabIcon(nextCanvas, level, 34, 30, dpr, special);
   nextBox.dataset.special = special || '';
-  const label = special ? `${SPECIAL_INFO[special].name} · ${defOf(level).name}` : defOf(level).name;
+  const label = clawdLabel(level,special);
+  $('next-label').textContent=levelLabel(level);
   nextBox.title = label;
   nextCanvas.setAttribute('role', 'img');
   nextCanvas.setAttribute('aria-label', `下一个：${label}`);
@@ -697,6 +699,8 @@ function frame(now) {
   game.update(dt);
   saves?.tick(now);
   game.render();
+  const feedback=game.specialFeedbackText();
+  if ($('special-status').textContent!==feedback) $('special-status').textContent=feedback;
 }
 
 document.addEventListener('visibilitychange', () => {

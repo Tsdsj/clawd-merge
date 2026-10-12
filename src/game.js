@@ -14,6 +14,7 @@ import {
   ANCHOR_Y,
   BODY_COLS,
   defOf,
+  clawdLabel,
   hitboxOf,
   getSprite,
   clearSpriteCache,
@@ -151,6 +152,7 @@ export class Game {
     this.crowns = 0;
     this.crownCycles = 0;
     this.choice = null;
+    this.specialNotice = null;
     this.clawMode = false;
     this.particles = [];
     this.texts = [];
@@ -173,6 +175,7 @@ export class Game {
   restore(state, rulesVersion) {
     restoreGame(this,state,rulesVersion);
     this.stopSpecialAudio();
+    this.specialNotice = null;
     if (!this.persistPreferences) return;
     if(!writePreference(BEST_KEY,String(this.best)))this.persistenceWarning=true;
     if(!writePreference(SEEN_KEY,JSON.stringify([...this.seen])))this.persistenceWarning=true;
@@ -318,6 +321,7 @@ export class Game {
       this.time += STEP;
       this.handleImpacts();
       this.handleMerges();
+      this.updateMagnetFeedback(STEP);
       this.acc -= STEP;
       steps++;
     }
@@ -375,6 +379,7 @@ export class Game {
       if (m.special !== 'magnet' || !m.magnetArmed) continue;
       if (this.time >= m.specialUntil) {
         m.special = null;
+        this.noticeSpecial(m, '磁力已耗尽', 'magnet');
         sfx.magnetEnd();
         this.ring(m.x, m.y, m.bound, m.bound + 20, SPECIAL_COLORS.magnet);
         continue;
@@ -395,6 +400,51 @@ export class Game {
         t.vy += ny * impulse;
       }
     }
+  }
+
+  noticeSpecial(body, message, kind = body.special) {
+    this.specialNotice = {message:`${clawdLabel(body.level, kind)}：${message}`, until:this.visualTime+2.4};
+  }
+
+  // Feedback observes the solved world; it never changes forces or contacts.
+  // A target needs a sustained stall AND physical contact before it is called blocked.
+  updateMagnetFeedback(dt) {
+    for (const m of this.world.bodies) {
+      if (m.special !== 'magnet' || !m.magnetArmed || this.time >= m.specialUntil) continue;
+      const previous = m.magnetFeedback?.targets ?? [];
+      const targets = (m.magnetTargets ?? []).filter(t => !t.merged && !t.frozen).map(body => {
+        const distance = Math.hypot(body.x-m.x, body.y-m.y);
+        const old = previous.find(t => t.body.id === body.id);
+        const approaching = !old || distance < old.anchorDistance-1;
+        const contact = this.world.contacts.some(c => c.a === body || c.b === body);
+        let elapsed=(old?.elapsed??0)+dt,stalledFor=old?.stalledFor??0,anchorDistance=old?.anchorDistance??distance;
+        if (approaching || !contact) {elapsed=0;stalledFor=0;anchorDistance=distance;}
+        else if (elapsed>=0.2) {stalledFor+=elapsed;elapsed=0;anchorDistance=distance;}
+        return {body,anchorDistance,elapsed,stalledFor,blocked:stalledFor>=0.35};
+      });
+      const frozen = this.world.bodies.some(b => b !== m && b.level===m.level && b.frozen && Math.hypot(b.x-m.x,b.y-m.y)<=SPECIALS.magnet.radius);
+      const blocked = targets.filter(t=>t.blocked).length;
+      m.magnetFeedback = {targets,blocked,state:!targets.length?(frozen?'frozen':'empty'):blocked===targets.length?'blocked':blocked?'mixed':'pulling'};
+    }
+  }
+
+  magnetFeedbackLabel(m) {
+    const f=m.magnetFeedback;
+    if (!m.magnetArmed) return '下落中 · 落稳后启动';
+    if (!f || f.state==='empty') return '范围内无可吸同级';
+    if (f.state==='frozen') return '附近同级已冻结';
+    if (f.state==='blocked') return `目标受阻（${f.targets.length}个同级）`;
+    if (f.state==='mixed') return `吸附中 · ${f.blocked}个目标受阻`;
+    return `吸附 ${f.targets.length} 个同级`;
+  }
+
+  specialFeedbackText() {
+    if (this.over) return '对局结束 · 特殊能力已停止';
+    if (this.specialNotice?.until > this.visualTime) return this.specialNotice.message;
+    const magnet=this.world.bodies.find(b=>b.special==='magnet');
+    if (magnet) return `${clawdLabel(magnet.level,'magnet')}：${this.magnetFeedbackLabel(magnet)}`;
+    if (this.currentSpecial) return `${clawdLabel(this.current,this.currentSpecial)} · 与同基础等级合成`;
+    return '颜色表示基础等级 · 配件表示特殊能力';
   }
 
   // Fix the actual touching pile. Frozen bodies use zero inverse mass, while
@@ -521,6 +571,12 @@ export class Game {
       Math.min(RULES.maxComboMult, 1 + RULES.comboStep * (this.combo - 1)) * (this.fever ? 2 : 1);
     const colors = rainbow ? RAINBOW_COLORS : null;
     const gold = consumed.some((b) => b.special === 'gold');
+    const magnet = consumed.find(b=>b.special==='magnet');
+    if (magnet) this.noticeSpecial(magnet, magnet.magnetArmed?'已合成，磁力消耗':'启动前已合成，磁力消耗');
+    else {
+      const carrier = consumed.find(b=>b.special || (b.froze && b.frozenUntil>this.time));
+      if (carrier) this.noticeSpecial(carrier, carrier.special==='gold'?'合成 ×2，能力消耗':carrier.froze?'冻结中合成':'启动前已合成，冰冻消耗', carrier.special || 'freeze');
+    }
     if (consumed.some(b => b.special === 'magnet' && b.magnetArmed)) sfx.magnetEnd(true);
 
     // Two kings (or a king + rainbow) ascend into a big bonus.
@@ -663,6 +719,7 @@ export class Game {
       }
     }
     if (!target) return false;
+    if (target.special==='magnet') this.noticeSpecial(target, '已夹走，磁力结束');
     this.world.remove(target);
     this.world.wakeNear(target.x, target.y, target.bound + 20);
     this.burst(target.x, target.y, 24, ['#8FE3FF', '#FFFFFF', '#D97757']);
@@ -881,6 +938,7 @@ export class Game {
     this.drawDangerLine(ctx);
     if (!this.over && !this.clawMode && !this.settling) this.drawAim(ctx);
     for (const crab of this.world.bodies) this.drawCrab(ctx, crab);
+    for (const crab of this.world.bodies) if (crab.special==='magnet' && crab.magnetArmed) this.drawMagnetTargets(ctx, crab);
     if (this.debug) this.drawHitboxes(ctx);
     this.drawRings(ctx);
     this.drawParticles(ctx);
@@ -939,6 +997,13 @@ export class Game {
       special: crab.special || (crab.froze && crab.frozenUntil > this.time ? 'freeze' : null),
     });
     this.drawSpecialOverlay(ctx, crab);
+    if (crab.special || (crab.froze && crab.frozenUntil>this.time)) {
+      ctx.save();
+      const x=clamp(crab.x-defOf(crab.level).width*.5,12,WORLD_W-16),y=crab.y-defOf(crab.level).width*.34;
+      ctx.fillStyle='#171828';ctx.fillRect(x-10,y-9,22,13);
+      ctx.fillStyle='#FFFFFF';ctx.font=`700 10px ${FONT}`;ctx.textAlign='center';ctx.fillText(`${crab.level}级`,x+1,y+1);
+      ctx.restore();
+    }
   }
 
   drawSpecialOverlay(ctx, crab) {
@@ -962,15 +1027,6 @@ export class Game {
       ctx.beginPath();
       ctx.arc(crab.x, crab.y, SPECIALS.magnet.radius, 0, Math.PI * 2);
       ctx.stroke();
-      ctx.setLineDash([]);
-      for (const target of crab.magnetTargets ?? []) {
-        if (target.merged || target.frozen) continue;
-        ctx.strokeStyle = 'rgba(192,160,242,0.35)';
-        ctx.beginPath();ctx.moveTo(target.x,target.y);ctx.lineTo(crab.x,crab.y);ctx.stroke();
-        ctx.fillStyle = '#E3CFFF';
-        const t = this.effects.reduced ? 0.5 : (this.visualTime * 1.4) % 1;
-        ctx.fillRect(target.x+(crab.x-target.x)*t-2,target.y+(crab.y-target.y)*t-2,4,4);
-      }
       ctx.restore();
       this.drawSpecialTimer(ctx, crab, crab.specialUntil - this.time, SPECIALS.magnet.seconds, SPECIAL_COLORS.magnet);
     }
@@ -978,17 +1034,35 @@ export class Game {
       ctx.save();
       ctx.translate(crab.x, crab.y);ctx.rotate(crab.angle);
       const w = defOf(crab.level).width * 0.56, h = defOf(crab.level).width * 0.36;
-      ctx.fillStyle = 'rgba(159,230,241,0.18)';
       ctx.strokeStyle = 'rgba(208,248,255,0.9)';ctx.lineWidth = 2;
       ctx.beginPath();
       ctx.moveTo(-w+5,-h);ctx.lineTo(w-5,-h);ctx.lineTo(w,-h+5);ctx.lineTo(w,h-5);
       ctx.lineTo(w-5,h);ctx.lineTo(-w+5,h);ctx.lineTo(-w,h-5);ctx.lineTo(-w,-h+5);ctx.closePath();
-      ctx.fill();ctx.stroke();
+      ctx.stroke();
       ctx.strokeStyle = 'rgba(231,250,255,0.65)';
       ctx.beginPath();ctx.moveTo(-w+5,-h+9);ctx.lineTo(-w+12,-h+2);ctx.stroke();
       ctx.restore();
       if (crab.froze) this.drawSpecialTimer(ctx, crab, crab.frozenUntil - this.time, SPECIALS.freeze.seconds, SPECIAL_COLORS.freeze);
     }
+  }
+
+  drawMagnetTargets(ctx, magnet) {
+    ctx.save();ctx.lineWidth=1.5;
+    for (const {body:target,blocked} of magnet.magnetFeedback?.targets ?? []) {
+      if (target.merged || target.frozen) continue;
+      const color=blocked?'#FFBE72':'#D8BCFF';
+      ctx.strokeStyle=color;ctx.fillStyle=color;ctx.setLineDash(blocked?[3,4]:[]);
+      ctx.globalAlpha=.65;
+      ctx.beginPath();ctx.moveTo(target.x,target.y);ctx.lineTo(magnet.x,magnet.y);ctx.stroke();
+      ctx.setLineDash([]);ctx.globalAlpha=.95;
+      ctx.beginPath();ctx.arc(target.x,target.y,target.bound+4,0,Math.PI*2);ctx.stroke();
+      const t=blocked ? 0.5 : this.effects.reduced ? 0.5 : (this.visualTime*1.4)%1;
+      const x=target.x+(magnet.x-target.x)*t,y=target.y+(magnet.y-target.y)*t;
+      if (blocked) {
+        ctx.beginPath();ctx.moveTo(x-4,y-4);ctx.lineTo(x+4,y+4);ctx.moveTo(x+4,y-4);ctx.lineTo(x-4,y+4);ctx.stroke();
+      } else ctx.fillRect(x-2,y-2,4,4);
+    }
+    ctx.restore();
   }
 
   drawSpecialTimer(ctx, crab, remaining, total, color) {
@@ -1040,8 +1114,8 @@ export class Game {
       ctx.save();
       ctx.fillStyle = SPECIAL_COLORS[this.currentSpecial];
       ctx.textAlign = 'center';ctx.font = `700 10px ${FONT}`;
-      const label = {gold:'金色 · 合成 ×2',magnet:'磁力 · 同级吸附',freeze:'冰冻 · 稳定 3 秒'}[this.currentSpecial];
-      ctx.fillText(label,clamp(x,48,WORLD_W-48),DROP_Y+extentOf(level).halfH+17);
+      const label = clawdLabel(level,this.currentSpecial);
+      ctx.fillText(label,clamp(x,70,WORLD_W-70),DROP_Y+extentOf(level).halfH+17);
       ctx.restore();
     }
   }

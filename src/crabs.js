@@ -278,6 +278,9 @@ const RAINBOW_DEF = {
 export const RAINBOW_FRAMES = 6;
 
 export const defOf = (level) => (level === RAINBOW ? RAINBOW_DEF : LEVELS[level - 1]);
+export const SPECIAL_NAMES = Object.freeze({gold:'金色',magnet:'磁力',freeze:'冰冻'});
+export const levelLabel = level => level === RAINBOW ? '彩虹' : `${level}级${[1,11].includes(level)?defOf(level).name:defOf(level).name.replace(/Clawd$/, '')}`;
+export const clawdLabel = (level, special) => `${SPECIAL_NAMES[special] ? SPECIAL_NAMES[special] + ' · ' : ''}${levelLabel(level)}`;
 
 // Collision circles in world units relative to the body centre.
 export function hitboxOf(level) {
@@ -296,11 +299,6 @@ const SPECIAL_BADGES = {
   gold: {x:5,y:-7,art:['..Y..','.YWY.','YWWWY','.YyY.','..y..']},
   magnet: {x:5,y:-7,art:['WW.WW','RR.UU','RR.UU','RR.UU','.VVV.','..V..']},
   freeze: {x:5,y:-7,art:['L.L.L','.LLL.','LLLLL','.LLL.','L.L.L']},
-};
-const SPECIAL_TINTS = {
-  gold: ['#FFE08A','#E8B53A','#BE812D'],
-  magnet: ['#D1B8F3','#AF8DDE','#805CAB'],
-  freeze: ['#E1FAFF','#91DDEC','#58ADC9'],
 };
 
 function compose(level, blink, frame, special) {
@@ -368,9 +366,7 @@ export function getSprite(level, cellPx, { blink = false, frame = 0, silhouette 
     const ctx = canvas.getContext('2d');
     const body = defOf(level).color ?? PALETTE['#'];
     for (const { x, y, ch } of layout.cells) {
-      const tint = SPECIAL_TINTS[special];
-      const bodyColor = tint ? tint[y < 3 ? 0 : y < 7 ? 1 : 2] : body;
-      ctx.fillStyle = silhouette ? '#3A3B55' : ch === '#' ? bodyColor : PALETTE[ch];
+      ctx.fillStyle = silhouette ? '#3A3B55' : ch === '#' ? body : PALETTE[ch];
       ctx.fillRect((x - layout.minX) * px, (y - layout.minY) * px, px, px);
     }
     sprite = { canvas, minX: layout.minX, minY: layout.minY, cols: layout.cols, rows: layout.rows };

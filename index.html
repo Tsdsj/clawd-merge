@@ -53,6 +53,7 @@
           <div class="next-box" id="next-box">
             <span>下一个</span>
             <canvas id="next"></canvas>
+            <span id="next-label"></span>
           </div>
           <div class="actions">
             <button id="claw" class="icon-btn claw-btn" aria-label="钳子：夹走一只 Clawd" title="钳子 (C)" disabled>
@@ -80,6 +81,7 @@
             <button id="help-btn" class="icon-btn" aria-label="玩法与舒适设置" title="玩法与舒适设置">?</button>
           </div>
         </div>
+        <p id="special-status" class="special-status" role="status" aria-live="polite">颜色表示基础等级 · 配件表示特殊能力</p>
       </header>
 
       <section class="stage" id="stage">
@@ -284,7 +286,7 @@
         <p id="restore-description" class="sheet-sub"></p>
         <div class="save-card hidden" id="restore-card">
           <b id="restore-score"></b><p id="restore-summary"></p>
-          <div class="restore-pieces"><span>当前</span><canvas id="restore-current"></canvas><span>下一个</span><canvas id="restore-next"></canvas></div>
+          <div class="restore-pieces"><div class="restore-piece"><span id="restore-current-label">当前</span><canvas id="restore-current"></canvas></div><div class="restore-piece"><span id="restore-next-label">下一个</span><canvas id="restore-next"></canvas></div></div>
           <p id="restore-time"></p>
         </div>
         <button class="btn restart-choice" id="restore-primary">继续游戏</button>
