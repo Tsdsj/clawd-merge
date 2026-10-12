@@ -159,3 +159,33 @@ test('gold doubles the merge base once, stacking with combo and fever to x8', (t
   assert.equal(g.score - 8, 32); // 4 × gold2 × combo2 × fever2
   assert.equal(g.world.bodies.filter((x) => x.special === 'gold').length, 0); // 金光耗尽
 });
+
+test('armed magnets pull same-level bodies inside the radius, then expire', (t) => {
+  const g = game(t);
+  const m = g.spawnCrab(2, 200, 500);
+  m.special = 'magnet'; m.magnetArmed = true; m.specialUntil = g.time + 2.5;
+  const t1 = g.spawnCrab(2, 320, 500); t1.vx = 0; t1.vy = 0;
+  const other = g.spawnCrab(3, 260, 500); other.vx = 0;
+  const far = g.spawnCrab(2, 200, 150); far.vx = 0;
+  g.updateSpecials(1 / 120);
+  assert.ok(t1.vx < 0); // 被拉向 x=200 的磁力
+  assert.equal(other.vx, 0); // 不同级不拉
+  assert.equal(far.vx, 0); // 超出半径不拉
+  m.specialUntil = g.time; // 到期
+  t1.vx = 0;
+  g.updateSpecials(1 / 120);
+  assert.equal(t1.vx, 0);
+  assert.equal(m.special, null); // 载体普通化
+});
+
+test('magnet arms after landing, not at spawn', (t) => {
+  const g = game(t);
+  const m = g.spawnCrab(2, 200, 500);
+  m.special = 'magnet';
+  g.updateSpecials(1 / 120);
+  assert.equal(m.magnetArmed, false);
+  m.landedFor = 0.2;
+  g.updateSpecials(1 / 120);
+  assert.equal(m.magnetArmed, true);
+  assert.ok(m.specialUntil > g.time);
+});

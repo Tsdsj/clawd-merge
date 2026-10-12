@@ -291,6 +291,7 @@ export class Game {
     this.acc += dt;
     let steps = 0;
     while (this.acc >= STEP && steps < MAX_STEPS) {
+      this.updateSpecials(STEP);
       this.world.step(STEP);
       this.time += STEP;
       this.handleImpacts();
@@ -315,6 +316,34 @@ export class Game {
       const stable = this.world.bodies.every(b => b.sleeping) && this.time - this.lastMergeAt >= dt;
       this.challenge.stableTime = stable ? Math.min(STABLE_SECONDS, this.challenge.stableTime + dt) : 0;
       if (this.challenge.stableTime >= STABLE_SECONDS || this.challenge.settlingTime >= SETTLE_SECONDS) this.gameOver('limit');
+    }
+  }
+
+  // Special-carrier effects run inside the physics step: velocity nudges only,
+  // never solver changes, so pile stability is untouched.
+  updateSpecials(dt) {
+    for (const b of this.world.bodies) {
+      if (b.special === 'magnet' && !b.magnetArmed && (b.landedFor ?? 0) >= RULES.landedTime) {
+        b.magnetArmed = true;
+        b.specialUntil = this.time + SPECIALS.magnet.seconds;
+      }
+    }
+    for (const m of this.world.bodies) {
+      if (m.special !== 'magnet' || !m.magnetArmed) continue;
+      if (this.time >= m.specialUntil) {
+        m.special = null;
+        continue;
+      }
+      for (const t of this.world.bodies) {
+        if (t === m || t.merged || t.level !== m.level) continue;
+        const dx = m.x - t.x;
+        const dy = m.y - t.y;
+        const d = Math.hypot(dx, dy);
+        if (d > SPECIALS.magnet.radius || d < 1) continue;
+        t.wake();
+        t.vx += (dx / d) * SPECIALS.magnet.accel * dt;
+        t.vy += (dy / d) * SPECIALS.magnet.accel * dt;
+      }
     }
   }
 
