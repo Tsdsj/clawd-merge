@@ -130,3 +130,32 @@ test('special cooldown anchors survive a snapshot restore', () => {
   h.specialLastAt.gold = 99;
   assert.equal(g.specialLastAt.gold, 20); // 恢复为独立副本，不共享原对象
 });
+
+function game(t) {
+  t.mock.method(Math, 'random', () => 0.5);
+  return new Game({ getContext: () => ({}) });
+}
+function contact(a, b) { return { a, b, ia: 0, pen: 1 }; }
+function merge(g, aLevel, bLevel = aLevel) {
+  const a = g.spawnCrab(aLevel, 180, 400);
+  const b = g.spawnCrab(bLevel, 200, 400);
+  g.world.contacts = [contact(a, b)];
+  g.handleMerges();
+  return [a, b];
+}
+
+test('gold doubles the merge base once, stacking with combo and fever to x8', (t) => {
+  const g = game(t);
+  const [a, b] = [g.spawnCrab(2, 180, 400), g.spawnCrab(2, 200, 400)];
+  a.special = 'gold';
+  g.world.contacts = [contact(a, b)];
+  g.handleMerges();
+  assert.equal(g.score, 8); // 4 × 2
+  const [c, d] = [g.spawnCrab(2, 180, 400), g.spawnCrab(2, 200, 400)];
+  c.special = 'gold';
+  g.combo = 5; g.lastMergeAt = g.time; g.feverTime = 8;
+  g.world.contacts = [contact(c, d)];
+  g.handleMerges();
+  assert.equal(g.score - 8, 32); // 4 × gold2 × combo2 × fever2
+  assert.equal(g.world.bodies.filter((x) => x.special === 'gold').length, 0); // 金光耗尽
+});

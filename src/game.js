@@ -370,10 +370,11 @@ export class Game {
     const mult =
       Math.min(RULES.maxComboMult, 1 + RULES.comboStep * (this.combo - 1)) * (this.fever ? 2 : 1);
     const colors = rainbow ? RAINBOW_COLORS : null;
+    const gold = consumed.some((b) => b.special === 'gold');
 
     // Two kings (or a king + rainbow) ascend into a big bonus.
     if (level === MAX_LEVEL) {
-      this.addScore(Math.round((RULES.points(level) + KING_BONUS) * mult), x, y);
+      this.addScore(Math.round((RULES.points(level) * (gold ? 2 : 1) + KING_BONUS) * mult), x, y);
       this.burst(x, y, 90, colors ?? ['#F7C948', '#FFE08A', '#D97757', '#FFFFFF']);
       this.ring(x, y, 40, 260, '#F7C948');
       this.shake = this.effects.shake ? 12 : 0;
@@ -393,8 +394,9 @@ export class Game {
     crab.vy = Math.min(0, ref.vy) - 80;
     crab.pop = true;
 
-    const points = Math.round(RULES.points(level) * mult);
+    const points = Math.round(RULES.points(level) * (gold ? 2 : 1) * mult);
     this.addScore(points, x, y);
+    if (gold) this.floatText('金色 ×2!', x, y - 48, 18, '#F7C948', 1.2);
     if (this.combo >= 2) {
       const size = Math.min(26, 14 + this.combo * 2);
       this.floatText(`连击 ×${this.combo}`, x, y - 34, size, '#FFD84D', 1.1);
