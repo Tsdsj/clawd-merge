@@ -48,6 +48,7 @@
 - 两只**同级**的 Clawd 碰到一起，会合成为下一级。
 - 落稳的 Clawd 堆过红色虚线并停留 3 秒，游戏结束（警戒线下方会显示倒计时；被大合成炸飞、还在空中的 Clawd 不算）。
 - 只会掉落最小的 5 种 Clawd；越往后，大一点的掉得越多。
+- 两只大Clawd 合体时会暂停让你二选一：升天得分，或王冠清扫残局。
 - 手机横屏也能玩，还可以「添加到主屏幕」当 App 用。
 - 查看排行榜、账号、身份选择或玩法说明时游戏自动暂停；关闭后回到原状态，不会解除之前的手动暂停。
 - 进行中的对局切后台或窗口失焦后，返回需要点「继续游戏」；物理、危险倒计时、狂热与冷却均暂停，恢复不会自动补投。
@@ -77,6 +78,11 @@
 | **连击** | 1.2 秒内连续合成算连击，每连一次得分 +25%，最高 ×2 |
 | **狂热模式** | 合成会充满棋盘顶部的能量条，满了进入 8 秒狂热，得分 ×2 |
 | **彩虹Clawd** | 稀有掉落，碰到谁就让谁直接升一级 |
+| **金色Clawd** | 稀有掉落，参与的那次合成得分 ×2（可与连击、狂热叠至 ×8） |
+| **磁力Clawd** | 稀有掉落，落地后短暂吸附同级，完成差一点的合成 |
+| **冰冻Clawd** | 稀有掉落，落地冻结接触的一堆几秒，稳稳搭塔瞄准 |
+| **王冠信物** | 每次升天集一顶，满 3 顶触发庆典 +5000，可循环 |
+| **升天抉择** | 两只大Clawd 合体前可选：升天得分，或化作冲击波清掉全场小Clawd |
 | **钳子** | 每局第一次合出 7 级及以上的每一级，各奖励一个钳子（最多存 3 个），可以夹走任意一只 Clawd |
 | **两只大Clawd** | 合在一起会「升天」，得到一大笔奖励分 |
 
@@ -218,6 +224,11 @@ A Suika-style ("合成大西瓜") physics merge game starring Clawd, Claude's or
 | --- | --- |
 | Combo | Merges within 1.2 s chain: +25% each, capped at ×2 |
 | Fever | Merges fill a meter; when it's full, you get 8 s of double score |
+| Gold Clawd | Rare drop: doubles the base score of the one merge it joins (stacks with combo/fever up to ×8) |
+| Magnet Clawd | Rare drop: after landing, briefly pulls same-level Clawds to finish a near-miss merge |
+| Freeze Clawd | Rare drop: freezes the pile it touches for a few seconds so you can aim |
+| Crown | Each ascension adds a pip; 3 pips trigger a +5000 celebration and reset the track |
+| Ascension choice | Two Big Clawds pause before merging: ascend for points, or wipe every small Clawd |
 | Claw | Earned the first time per game you create each level ≥ 7 (max 3). Tap a Clawd to remove it |
 | Collection | Unseen Clawds show as silhouettes; the first time you create one, an unlock card pops up |
 
