@@ -3,7 +3,7 @@ import { captureGame, restoreGame } from './game-state.js';
 import { GameplayRandom } from './random.js';
 import { challengeSequence, SETTLE_SECONDS, STABLE_SECONDS } from './challenge.js';
 import { chooseClassicLevel } from './drop-sequence.js';
-import { RULES, DROP_COOLDOWN, COMBO_WINDOW, FEVER_MAX, FEVER_TIME, CLAW_LEVEL, MAX_CLAWS, KING_BONUS } from './rules.js';
+import { RULES, DROP_COOLDOWN, COMBO_WINDOW, FEVER_MAX, FEVER_TIME, CLAW_LEVEL, MAX_CLAWS, KING_BONUS, CLASSIC_RULES_VERSION, CLASSIC_RULES_VERSIONS } from './rules.js';
 export { RULES } from './rules.js';
 import { readPreference, writePreference } from './storage.js';
 import {
@@ -67,13 +67,17 @@ function loadSeen() {
 }
 
 export class Game {
-  constructor(canvas, events = {}, { seed, challenge = null, comfort = () => DEFAULT_EFFECTS } = {}) {
+  constructor(canvas, events = {}, { seed, challenge = null, comfort = () => DEFAULT_EFFECTS, rulesVersion } = {}) {
     this.comfort = comfort;
     this.canvas = canvas;
     this.ctx = canvas.getContext('2d');
     this.events = events;
     this.gameplayRandom = new GameplayRandom(seed);
     this.challengeDefinition = challenge ? Object.freeze({ challengeId: challenge.challengeId, rulesVersion: challenge.rulesVersion, count: challenge.count }) : null;
+    this.rulesVersion = CLASSIC_RULES_VERSIONS.includes(rulesVersion) ? rulesVersion : CLASSIC_RULES_VERSION;
+    // reset() restarts a finished board; explicit constructor versions simulate
+    // an in-progress old save and must survive that restart.
+    this.defaultRulesVersion = this.rulesVersion;
     this.dropSequence = challenge ? challengeSequence(this.challengeDefinition) : null;
     this.persistPreferences = !challenge;
     this.world = new World({ width: WORLD_W, height: WORLD_H, gravity: 1800 });
@@ -101,6 +105,7 @@ export class Game {
   }
 
   reset() {
+    this.rulesVersion = this.defaultRulesVersion;
     this.paused = false;
     this.visualTime = 0;
     this.world.clear();
@@ -144,14 +149,19 @@ export class Game {
   }
 
   snapshot() { return captureGame(this); }
-  restore(state) {
-    restoreGame(this,state);
+  restore(state, rulesVersion) {
+    restoreGame(this,state,rulesVersion);
     if (!this.persistPreferences) return;
     if(!writePreference(BEST_KEY,String(this.best)))this.persistenceWarning=true;
     if(!writePreference(SEEN_KEY,JSON.stringify([...this.seen])))this.persistenceWarning=true;
   }
 
   get settling() { return this.challenge?.phase === 'settling'; }
+
+  // classic-2 specials never leak into daily-1 challenges or restored classic-1 games.
+  get specialRules() {
+    return !this.challengeDefinition && this.rulesVersion === 'classic-2';
+  }
 
   // Early on only the tiniest Clawds drop; bigger ones unlock as you progress.
   randomLevel() {

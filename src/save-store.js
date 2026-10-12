@@ -1,4 +1,4 @@
-import { SCHEMA_VERSION, RULES_VERSION, validateGameState } from './game-state.js';
+import { SCHEMA_VERSION, RULES_VERSION, CLASSIC_RULES_VERSIONS, validateGameState } from './game-state.js';
 import { resultFields } from './score-result.js';
 
 export class SaveStore {
@@ -11,9 +11,10 @@ export class SaveStore {
     if(this.channel)this.channel.onmessage=event=>{ void this.message(event.data); };
   }
   validate(r) {
-    if(!r || r.schemaVersion!==SCHEMA_VERSION || r.rulesVersion!==RULES_VERSION || r.scope!==this.scope ||
+    if(!r || r.schemaVersion!==SCHEMA_VERSION || !CLASSIC_RULES_VERSIONS.includes(r.rulesVersion) || r.scope!==this.scope ||
       typeof r.roundId!=='string' || !r.roundId.length || r.roundId.length>100 ||
       !Number.isSafeInteger(r.savedAt) || r.savedAt<0)throw new Error('invalid_save');
+    if(r.game && r.game.rulesVersion!==undefined && r.game.rulesVersion!==r.rulesVersion)throw new Error('invalid_save');
     if(r.terminal) {
       resultFields(r.terminal);
       if(r.terminal.roundId!==r.roundId)throw new Error('invalid_result');
@@ -25,7 +26,7 @@ export class SaveStore {
     validateGameState(r.game);return r;
   }
   record(roundId, game, online) {
-    return { schemaVersion:SCHEMA_VERSION,rulesVersion:RULES_VERSION,scope:this.scope,roundId,savedAt:Date.now(),game,online };
+    return { schemaVersion:SCHEMA_VERSION,rulesVersion:game.rulesVersion ?? RULES_VERSION,scope:this.scope,roundId,savedAt:Date.now(),game,online };
   }
   read() {
     let raw;

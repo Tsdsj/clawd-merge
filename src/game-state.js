@@ -1,7 +1,8 @@
 import { World } from './physics.js';
 import { GameplayRandom } from './random.js';
 import { validateChallenge } from './challenge.js';
-export { CLASSIC_RULES_VERSION as RULES_VERSION } from './rules.js';
+import { CLASSIC_RULES_VERSIONS } from './rules.js';
+export { CLASSIC_RULES_VERSION as RULES_VERSION, CLASSIC_RULES_VERSIONS } from './rules.js';
 
 export const SCHEMA_VERSION = 1;
 const fields = ['score','bestAtStart','recordShown','time','visualTime','drops','maxLevel','current','next',
@@ -13,6 +14,7 @@ function requireValue(ok) { if (!ok) throw new Error('invalid_snapshot'); }
 
 export function validateGameState(s) {
   requireValue(s && typeof s === 'object');
+  if (Object.hasOwn(s, 'rulesVersion')) requireValue(CLASSIC_RULES_VERSIONS.includes(s.rulesVersion));
   if (Object.hasOwn(s, 'gameplayRandom')) GameplayRandom.fromSnapshot(s.gameplayRandom);
   for (const key of ['score','bestAtStart','drops','combo']) requireValue(number(s[key],0,1e9,true));
   for (const key of ['time','visualTime']) requireValue(number(s[key],0,1e9));
@@ -48,12 +50,13 @@ export function captureGame(g) {
   const contacts = g.world.contacts.filter(c => (c.a === g.world.wall || indexes.has(c.a)) && indexes.has(c.b))
     .map(c => ({ a: c.a === g.world.wall ? -1 : indexes.get(c.a), b:indexes.get(c.b),
       ...pick(c,['ia','ib','nx','ny','pen','px','py','Pn','Pt']) }));
-  return validateGameState({ ...pick(g,fields), ...(g.challenge ? { challenge: { ...g.challenge } } : {}), gameplayRandom:g.gameplayRandom.snapshot(), lastMergeAt: Number.isFinite(g.lastMergeAt) ? g.lastMergeAt : null,
+  return validateGameState({ ...pick(g,fields), ...(g.challenge ? { challenge: { ...g.challenge } } : { rulesVersion: g.rulesVersion }), gameplayRandom:g.gameplayRandom.snapshot(), lastMergeAt: Number.isFinite(g.lastMergeAt) ? g.lastMergeAt : null,
     seen:[...g.seen], bodies:g.world.bodies.map(b => pick(b,bodyFields)), contacts });
 }
 
-export function restoreGame(g, state) {
+export function restoreGame(g, state, rulesVersion) {
   validateGameState(state);
+  if (rulesVersion) requireValue(CLASSIC_RULES_VERSIONS.includes(rulesVersion));
   requireValue(Boolean(state.challenge) === Boolean(g.challengeDefinition));
   if (state.challenge) requireValue(['challengeId','rulesVersion','count'].every(k => state.challenge[k] === g.challengeDefinition[k]));
   const gameplayRandom = Object.hasOwn(state, 'gameplayRandom')
@@ -73,6 +76,7 @@ export function restoreGame(g, state) {
     c.Pn=data.Pn; c.Pt=data.Pt; world.contacts.push(c); world.cache.set(c.key,c);
   }
   // No callbacks or durable writes before validation and reconstruction succeed.
+  if (!state.challenge) g.rulesVersion = rulesVersion ?? state.rulesVersion ?? 'classic-1';
   g.world = world; g.gameplayRandom = gameplayRandom; Object.assign(g,pick(state,fields));
   g.clawsUsed = state.clawsUsed ?? 0;
   if (state.challenge) g.challenge = { ...state.challenge };

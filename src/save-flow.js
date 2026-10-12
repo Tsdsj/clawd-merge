@@ -144,7 +144,7 @@ export function createSaveFlow({ game, leaderboard, pauses, showModal, onNew, on
     if(!record || !store.owned)return;
     restoreLocal=local;
     try {
-      game.restore(record.game);
+      game.restore(record.game, record.rulesVersion);
     } catch {
       state='invalid';display('invalid');return;
     }

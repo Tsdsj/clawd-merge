@@ -1,5 +1,5 @@
 // Change versioned rules rather than silently changing an existing daily puzzle.
-export const CLASSIC_RULES_VERSION = 'classic-1';
+export const CLASSIC_RULES_VERSION = 'classic-2';
 export const CHALLENGE_RULES_VERSION = 'daily-1';
 
 export const RULES = Object.freeze({

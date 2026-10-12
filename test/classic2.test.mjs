@@ -5,6 +5,8 @@ import assert from 'node:assert/strict';
 globalThis.localStorage = { getItem: (key) => key.endsWith(':sound') ? 'off' : null, setItem() {} };
 
 const { chooseClassicDrop } = await import('../src/drop-sequence.js');
+const { Game } = await import('../src/game.js');
+const { SaveStore } = await import('../src/save-store.js');
 
 function mockGame(overrides = {}) {
   return {
@@ -52,4 +54,36 @@ test('no consecutive specials; cooldown and active caps exclude kinds', () => {
   // 三个非彩虹类全被挡住时，池里仍有 rainbow
   const blocked = mockGame({ drops: 20, specialLastAt: { gold: 19, magnet: 19, freeze: 19 } });
   assert.deepEqual(chooseClassicDrop(seq(0.001, 0.001), blocked), { level: 0, special: null });
+});
+
+test('new games default to classic-2; classic-1 saves restore and re-save under classic-1', () => {
+  const g = new Game({ getContext: () => ({}) });
+  assert.equal(g.rulesVersion, 'classic-2');
+  assert.equal(g.specialRules, true);
+  g.restore(g.snapshot(), 'classic-1');
+  assert.equal(g.rulesVersion, 'classic-1');
+  assert.equal(g.specialRules, false);
+  assert.equal(g.snapshot().rulesVersion, 'classic-1');
+});
+
+test('challenge games never use classic-2 special rules', () => {
+  const c = new Game({ getContext: () => ({}) }, {}, { seed: 1, challenge: { challengeId: 't1', rulesVersion: 'daily-1', count: 100 } });
+  assert.equal(c.specialRules, false);
+});
+
+test('SaveStore accepts both versions and keeps outer stamps consistent', () => {
+  const storage = new Map();
+  const store = new SaveStore({
+    scope: 'test',
+    storage: { getItem: (k) => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, v), removeItem: (k) => storage.delete(k) },
+  });
+  store.owned = true;
+  const g = new Game({ getContext: () => ({}) });
+  g.restore(g.snapshot(), 'classic-1');
+  const record = store.record('round-1', g.snapshot(), null);
+  assert.equal(record.rulesVersion, 'classic-1');
+  store.write(record);
+  assert.equal(store.read().record.rulesVersion, 'classic-1');
+  assert.throws(() => store.validate({ ...record, rulesVersion: 'classic-3' }));
+  assert.throws(() => store.validate({ ...record, game: { ...record.game, rulesVersion: 'classic-2' } }));
 });
