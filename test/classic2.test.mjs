@@ -87,3 +87,35 @@ test('SaveStore accepts both versions and keeps outer stamps consistent', () => 
   assert.throws(() => store.validate({ ...record, rulesVersion: 'classic-3' }));
   assert.throws(() => store.validate({ ...record, game: { ...record.game, rulesVersion: 'classic-2' } }));
 });
+
+test('special carriers ride the drop queue; snapshots keep gold and expire magnet/freeze', () => {
+  const g = new Game({ getContext: () => ({}) }, {}, { seed: 7 });
+  g.current = 2; g.currentSpecial = 'gold';
+  g.drop();
+  const gold = g.world.bodies.at(-1);
+  assert.equal(gold.special, 'gold');
+  assert.equal(g.currentSpecial, null); // 新 next 由 RNG 重掷
+  g.discoverSpecial('gold');
+  assert.ok(g.seenSpecials.has('gold'));
+
+  const h = new Game({ getContext: () => ({}) }, {}, { seed: 9 });
+  h.restore(JSON.parse(JSON.stringify(g.snapshot())));
+  assert.equal(h.world.bodies.at(-1).special, 'gold'); // 金色无时限，持久化
+  const magnet = h.spawnCrab(2, 200, 400);
+  magnet.special = 'magnet'; magnet.specialUntil = h.time + 5;
+  const frozen = h.spawnCrab(3, 260, 400);
+  frozen.special = 'freeze'; frozen.specialUntil = h.time + 5;
+  const state = JSON.parse(JSON.stringify(h.snapshot()));
+  const k = new Game({ getContext: () => ({}) }, {}, { seed: 11 });
+  k.restore(state);
+  const levels = k.world.bodies.map((b) => b.special);
+  assert.equal(levels.filter((s) => s === 'magnet' || s === 'freeze').length, 0); // 磁力/冰冻恢复即过期
+  assert.equal(levels.filter((s) => s === 'gold').length, 1);
+});
+
+test('challenge drops never carry specials', () => {
+  const c = new Game({ getContext: () => ({}) }, {}, { seed: 1, challenge: { challengeId: 't1', rulesVersion: 'daily-1', count: 100 } });
+  c.drop();
+  assert.equal(c.currentSpecial, null);
+  assert.equal(c.nextSpecial, null);
+});

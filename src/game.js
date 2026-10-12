@@ -2,8 +2,8 @@ import { World, Body } from './physics.js';
 import { captureGame, restoreGame } from './game-state.js';
 import { GameplayRandom } from './random.js';
 import { challengeSequence, SETTLE_SECONDS, STABLE_SECONDS } from './challenge.js';
-import { chooseClassicLevel } from './drop-sequence.js';
-import { RULES, DROP_COOLDOWN, COMBO_WINDOW, FEVER_MAX, FEVER_TIME, CLAW_LEVEL, MAX_CLAWS, KING_BONUS, CLASSIC_RULES_VERSION, CLASSIC_RULES_VERSIONS } from './rules.js';
+import { chooseClassicDrop } from './drop-sequence.js';
+import { RULES, DROP_COOLDOWN, COMBO_WINDOW, FEVER_MAX, FEVER_TIME, CLAW_LEVEL, MAX_CLAWS, KING_BONUS, CLASSIC_RULES_VERSION, CLASSIC_RULES_VERSIONS, SPECIALS, SPECIAL_KINDS } from './rules.js';
 export { RULES } from './rules.js';
 import { readPreference, writePreference } from './storage.js';
 import {
@@ -29,6 +29,7 @@ const STEP = 1 / 120;
 const MAX_STEPS = 12;
 const BEST_KEY = 'clawd-merge:best';
 const SEEN_KEY = 'clawd-merge:seen';
+const SEEN_SPECIALS_KEY = 'clawd-merge:seen-specials';
 const FONT = '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif';
 
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
@@ -66,6 +67,15 @@ function loadSeen() {
   }
 }
 
+function loadSeenSpecials() {
+  try {
+    const list = JSON.parse(readPreference(SEEN_SPECIALS_KEY) || '[]');
+    return new Set(list.filter((k) => SPECIAL_KINDS.includes(k)));
+  } catch {
+    return new Set();
+  }
+}
+
 export class Game {
   constructor(canvas, events = {}, { seed, challenge = null, comfort = () => DEFAULT_EFFECTS, rulesVersion } = {}) {
     this.comfort = comfort;
@@ -86,6 +96,7 @@ export class Game {
     this.debug = false;
     this.best = this.persistPreferences ? Number(readPreference(BEST_KEY)) || 0 : 0;
     this.seen = this.persistPreferences ? loadSeen() : new Set([1]);
+    this.seenSpecials = this.persistPreferences ? loadSeenSpecials() : new Set();
     this.reset();
   }
 
@@ -117,8 +128,12 @@ export class Game {
     this.drops = 0;
     this.maxLevel = 1;
     this.challenge = this.challengeDefinition ? { ...this.challengeDefinition, phase: 'playing', settlingTime: 0, stableTime: 0, reason: null } : null;
+    this.specialLastAt = {};
+    const upcoming = this.dropSequence ? null : this.randomDrop();
     this.current = this.dropSequence?.[0] ?? 1;
-    this.next = this.dropSequence ? this.dropSequence[1] : this.randomLevel();
+    this.currentSpecial = null;
+    this.next = this.dropSequence ? this.dropSequence[1] : upcoming.level;
+    this.nextSpecial = this.dropSequence ? null : upcoming.special;
     this.aimX = WORLD_W / 2;
     this.cooldown = 0;
     this.pendingDrop = false;
@@ -164,8 +179,12 @@ export class Game {
   }
 
   // Early on only the tiniest Clawds drop; bigger ones unlock as you progress.
-  randomLevel() {
-    return chooseClassicLevel(() => this.gameplayRandom.next(), this);
+  randomDrop() {
+    return chooseClassicDrop(() => this.gameplayRandom.next(), this);
+  }
+
+  activeSpecialCount(kind) {
+    return this.world.bodies.reduce((n, b) => n + (b.special === kind && b.specialUntil > this.time ? 1 : 0), 0);
   }
 
   resize(cssW, cssH, dpr) {
@@ -199,17 +218,30 @@ export class Game {
   drop() {
     if (this.paused || this.over || this.settling) return;
     const level = this.current;
+    const special = this.currentSpecial;
     const crab = this.spawnCrab(level, this.clampAim(this.aimX, level), DROP_Y);
     crab.vy = 120;
+    crab.special = special;
     this.drops++;
-    this.current = this.dropSequence ? this.dropSequence[this.drops] ?? null : this.next;
-    this.next = this.dropSequence ? this.dropSequence[this.drops + 1] ?? null : this.randomLevel();
+    if (this.dropSequence) {
+      this.current = this.dropSequence[this.drops] ?? null;
+      this.currentSpecial = null;
+      this.next = this.dropSequence[this.drops + 1] ?? null;
+      this.nextSpecial = null;
+    } else {
+      this.current = this.next;
+      this.currentSpecial = this.nextSpecial;
+      const upcoming = this.randomDrop();
+      this.next = upcoming.level;
+      this.nextSpecial = upcoming.special;
+    }
     if (this.challenge && this.drops === this.challenge.count) { this.challenge.phase = 'settling'; this.clawMode = false; }
     this.cooldown = DROP_COOLDOWN;
     this.pendingDrop = false;
     sfx.drop();
     if (level === RAINBOW && !this.seen.has(RAINBOW)) this.discover(RAINBOW);
-    this.events.onNext?.(this.next);
+    if (special && !this.seenSpecials.has(special)) this.discoverSpecial(special);
+    this.events.onNext?.(this.next, this.nextSpecial);
     this.events.onDrop?.(this.drops);
   }
 
@@ -229,6 +261,11 @@ export class Game {
     crab.level = level;
     crab.born = this.time;
     crab.merged = false;
+    crab.special = null;
+    crab.specialUntil = 0;
+    crab.magnetArmed = false;
+    crab.froze = false;
+    crab.frozenUntil = 0;
     crab.pop = false;
     crab.squash = 0;
     crab.dustAt = 0;
@@ -420,6 +457,13 @@ export class Game {
     this.card = { level, t: 0, dur: 2.2 };
     sfx.discover();
     this.events.onDiscover?.(this.seen);
+  }
+
+  discoverSpecial(kind) {
+    this.seenSpecials.add(kind);
+    if (this.persistPreferences && !writePreference(SEEN_SPECIALS_KEY, JSON.stringify([...this.seenSpecials]))) this.persistenceWarning = true;
+    sfx.discover();
+    this.events.onDiscoverSpecial?.(this.seenSpecials);
   }
 
   // ---------- claw power-up ----------

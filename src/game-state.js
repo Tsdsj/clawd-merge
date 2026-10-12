@@ -1,13 +1,13 @@
 import { World } from './physics.js';
 import { GameplayRandom } from './random.js';
 import { validateChallenge } from './challenge.js';
-import { CLASSIC_RULES_VERSIONS } from './rules.js';
+import { CLASSIC_RULES_VERSIONS, SPECIAL_KINDS } from './rules.js';
 export { CLASSIC_RULES_VERSION as RULES_VERSION, CLASSIC_RULES_VERSIONS } from './rules.js';
 
 export const SCHEMA_VERSION = 1;
 const fields = ['score','bestAtStart','recordShown','time','visualTime','drops','maxLevel','current','next',
-  'aimX','cooldown','danger','warning','combo','feverMeter','feverTime','claws','clawsUsed'];
-const bodyFields = ['level','x','y','angle','vx','vy','w','sleeping','stillTime','restX','restY','restAngle','born','landedFor'];
+  'currentSpecial','nextSpecial','aimX','cooldown','danger','warning','combo','feverMeter','feverTime','claws','clawsUsed'];
+const bodyFields = ['level','x','y','angle','vx','vy','w','sleeping','stillTime','restX','restY','restAngle','born','landedFor','special'];
 const pick = (object, keys) => Object.fromEntries(keys.map(k => [k, object[k] !== undefined ? object[k] : (k === 'landedFor' ? 0 : undefined)]));
 const number = (n, lo, hi, integer = false) => typeof n === 'number' && Number.isFinite(n) && n >= lo && n <= hi && (!integer || Number.isInteger(n));
 function requireValue(ok) { if (!ok) throw new Error('invalid_snapshot'); }
@@ -22,6 +22,10 @@ export function validateGameState(s) {
   if (Object.hasOwn(s, 'challenge')) validateChallenge(s.challenge, s.drops, s.current, s.next);
   else for (const key of ['current','next']) requireValue(number(s[key],0,5,true));
   if(Object.hasOwn(s,'clawsUsed'))requireValue(number(s.clawsUsed,0,5,true));
+  const specialOrNull = (v) => v === null || SPECIAL_KINDS.includes(v);
+  if (Object.hasOwn(s, 'currentSpecial') || Object.hasOwn(s, 'nextSpecial')) {
+    requireValue(specialOrNull(s.currentSpecial) && specialOrNull(s.nextSpecial));
+  }
   requireValue(number(s.maxLevel,1,11,true) && number(s.claws,0,3,true));
   requireValue(number(s.aimX,0,400) && number(s.cooldown,0,0.5));
   requireValue(number(s.danger,0,3) && number(s.warning,0,2,true));
@@ -31,6 +35,7 @@ export function validateGameState(s) {
   requireValue(Array.isArray(s.bodies) && s.bodies.length <= 1000);
   for (const b of s.bodies) {
     requireValue(b && number(b.level,0,11,true) && typeof b.sleeping === 'boolean');
+    if (Object.hasOwn(b, 'special')) requireValue(specialOrNull(b.special));
     for (const key of ['x','y','restX','restY']) requireValue(number(b[key],-10000,10000));
     for (const key of ['vx','vy','w','angle','restAngle']) requireValue(number(b[key],-1e8,1e8));
     for (const key of ['stillTime','born','landedFor']) requireValue(number(b[key],0,1e9));
@@ -66,6 +71,8 @@ export function restoreGame(g, state, rulesVersion) {
   for (const data of state.bodies) {
     const b = builder.spawnCrab(data.level,data.x,data.y);
     Object.assign(b,pick(data,bodyFields));
+    b.special = data.special === 'gold' ? 'gold' : null;
+    b.specialUntil = 0; b.magnetArmed = false; b.froze = false; b.frozenUntil = 0;
     if (data.sleeping) { b.im=0; b.ii=0; }
     b.updateTransform();
   }
@@ -79,6 +86,8 @@ export function restoreGame(g, state, rulesVersion) {
   if (!state.challenge) g.rulesVersion = rulesVersion ?? state.rulesVersion ?? 'classic-1';
   g.world = world; g.gameplayRandom = gameplayRandom; Object.assign(g,pick(state,fields));
   g.clawsUsed = state.clawsUsed ?? 0;
+  g.currentSpecial = state.currentSpecial ?? null;
+  g.nextSpecial = state.nextSpecial ?? null;
   if (state.challenge) g.challenge = { ...state.challenge };
   g.lastMergeAt = state.lastMergeAt ?? -Infinity;
   g.best = Math.max(g.best,state.score,state.bestAtStart);
