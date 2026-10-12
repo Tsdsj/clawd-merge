@@ -89,6 +89,11 @@ body {
 .pause-panel p { font-size: 12px; line-height: 1.7; color: #c3b9ca; margin: 10px 0; }
 .pause-panel .btn { width: 100%; min-height: 44px; margin-top: 8px; }
 .pause-panel .link-btn { margin-top: 10px; min-height: 36px; }
+.choice-cover { position: absolute; inset: 0; display: grid; place-items: center; padding: 12px; background: #101526d6; z-index: 6; cursor: default; }
+.choice-panel { width: 100%; max-width: 290px; max-height: 100%; overflow-y: auto; padding: 20px 16px; text-align: center; background: #24273c; border: 1px solid #9d715c; border-radius: 9px; }
+.choice-panel h2 { font-size: 22px; color: #e9a789; }
+.choice-copy { font-size: 12px; line-height: 1.7; color: #c3b9ca; margin: 10px 0; }
+.choice-panel .btn { width: 100%; min-height: 44px; margin-top: 8px; white-space: normal; line-height: 1.35; }
 .retained-progress { padding: 12px; background: #171b2c; border-radius: 6px; width: 100%; font-size: 13px; line-height: 1.7; }
 .restart-choice { min-height: 44px; width: 100%; margin-top: 10px; }
 .danger-btn { background: #a54f40; box-shadow: 0 3px #74382e; }
@@ -238,6 +243,10 @@ button:focus-visible, input:focus-visible, .board:focus-visible { outline: 3px s
   color: var(--muted);
   white-space: nowrap;
 }
+
+.next-box[data-special="gold"] #next { box-shadow: 0 0 0 2px #F7C948; border-radius: 6px; }
+.next-box[data-special="magnet"] #next { box-shadow: 0 0 0 2px #8FE3FF; border-radius: 6px; }
+.next-box[data-special="freeze"] #next { box-shadow: 0 0 0 2px #9FD8FF; border-radius: 6px; }
 
 .actions {
   display: flex;
@@ -824,6 +833,8 @@ body.modal-open .board {
   opacity: 1;
   color: var(--text);
 }
+
+.legend-special canvas { image-rendering: pixelated; }
 
 @keyframes bump {
   40% {

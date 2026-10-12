@@ -1,4 +1,5 @@
 import { Game, WORLD_W, WORLD_H, enableHaptics } from './game.js';
+import { SPECIAL_KINDS } from './rules.js';
 import { LEVELS, RAINBOW, defOf, drawCrabIcon, drawLegendIcon } from './crabs.js';
 import { sfx } from './audio.js';
 import { leaderboard, displayName } from './leaderboard.js';
@@ -26,6 +27,7 @@ const canvas = $('game');
 const scoreEl = $('score');
 const bestEl = $('best');
 const nextCanvas = $('next');
+const nextBox = $('next-box');
 const overlay = $('overlay');
 const soundBtn = $('sound');
 const clawBtn = $('claw');
@@ -67,8 +69,37 @@ const legend = [...LEVELS.map((_, i) => i + 1), RAINBOW].map((level) => {
   return { level, item, icon, name };
 });
 
+const SPECIAL_COLORS = { gold: '#F7C948', magnet: '#8FE3FF', freeze: '#9FD8FF' };
+const SPECIAL_INFO = {
+  gold: { name: '金色Clawd', tip: '金色 Clawd：它参与的那次合成，得分 ×2！' },
+  magnet: { name: '磁力Clawd', tip: '磁力 Clawd：落地后短暂吸附同级，帮你完成差一点的合成。' },
+  freeze: { name: '冰冻Clawd', tip: '冰冻 Clawd：落地冻结一堆，几秒内稳如泰山。' },
+};
+const specialLegend = SPECIAL_KINDS.map((kind) => {
+  const item = document.createElement('div');
+  item.className = 'legend-item legend-special';
+  item.dataset.special = kind;
+  const icon = document.createElement('canvas');
+  const name = document.createElement('span');
+  name.textContent = SPECIAL_INFO[kind].name;
+  item.append(icon, name);
+  $('legend').append(item);
+  return { kind, item, icon };
+});
+
 let dpr = 1;
 let overTimer = 0;
+
+function drawSpecialLegendIcon(icon, kind, locked) {
+  drawLegendIcon(icon, 3, dpr, locked);
+  const ctx = icon.getContext('2d');
+  ctx.save();
+  ctx.globalCompositeOperation = 'source-atop';
+  ctx.globalAlpha = locked ? 0.35 : 0.5;
+  ctx.fillStyle = SPECIAL_COLORS[kind];
+  ctx.fillRect(0, 0, icon.width, icon.height);
+  ctx.restore();
+}
 
 function drawLegend() {
   for (const { level, item, icon, name } of legend) {
@@ -77,6 +108,11 @@ function drawLegend() {
     item.classList.toggle('locked', !seen);
     name.textContent = seen ? defOf(level).name : '???';
     drawLegendIcon(icon, level, dpr, !seen);
+  }
+  for (const { kind, item, icon } of specialLegend) {
+    const seen = game.seenSpecials.has(kind);
+    item.classList.toggle('hidden', !seen);
+    drawSpecialLegendIcon(icon, kind, !seen);
   }
 }
 
@@ -90,9 +126,11 @@ const game = new Game(canvas, {
     scoreEl.textContent = score;
     bestEl.textContent = best;
   },
-  onNext(level) {
+  onNext(level, special) {
     drawCrabIcon(nextCanvas, level, 34, 24, dpr);
-    if (level === RAINBOW) featureTip('rainbow', '彩虹 Clawd：碰到谁，就让谁升一级。');
+    nextBox.dataset.special = special || '';
+    if (special) featureTip(special, SPECIAL_INFO[special].tip);
+    else if (level === RAINBOW) featureTip('rainbow', '彩虹 Clawd：碰到谁，就让谁升一级。');
   },
   onDrop(drops) {
     guide.advance(drops);
@@ -103,6 +141,19 @@ const game = new Game(canvas, {
   },
   onDiscover() {
     drawLegend();
+  },
+  onDiscoverSpecial() {
+    drawLegend();
+  },
+  onChoice() {
+    $('choice-cover').classList.remove('hidden');
+    $('choice-ascend').focus();
+  },
+  onChoiceEnd() {
+    $('choice-cover').classList.add('hidden');
+  },
+  onCrowns(crowns) {
+    if (crowns > 0) featureTip('crown', `王冠 ${crowns}/3：再升天 ${3 - crowns} 次，集满庆典 +5000。`);
   },
   onClaws(count, active) {
     $('claw-count').textContent = count;
@@ -148,6 +199,7 @@ function resetRound() {
   if (!restartModal.classList.contains('hidden')) showModal(restartModal, false);
   clearTimeout(overTimer);
   overlay.classList.add('hidden');
+  $('choice-cover').classList.add('hidden');
   game.reset();
   pauses.clear();
   beginRound();
@@ -357,6 +409,8 @@ $('player-chip').addEventListener('click',event=>{event.currentTarget.focus({pre
 $('help-btn').addEventListener('click',()=>comfortPanel.open({mode:'classic'}));
 $('cancel-restart').addEventListener('click',()=>showModal(restartModal,false));
 $('confirm-restart').addEventListener('click',restartNow);
+$('choice-ascend').onclick=()=>game.resolveChoice('ascend');
+$('choice-sweep').onclick=()=>game.resolveChoice('sweep');
 $('pause-btn').addEventListener('click',togglePause);
 $('resume-btn').addEventListener('click',togglePause);
 $('guide-dismiss').addEventListener('click',()=>{guide.dismiss();updateGuide();});

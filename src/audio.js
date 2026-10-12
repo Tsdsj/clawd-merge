@@ -84,4 +84,14 @@ export const sfx = {
     blip(880, { dur: 0.3, to: 110, type: 'sawtooth', vol: 0.06 });
     blip(440, { at: 0.1, dur: 0.25, to: 80, type: 'triangle', vol: 0.06 });
   },
+  gold() {
+    blip(880, { dur: 0.07 });
+    blip(1320, { at: 0.07, dur: 0.09, vol: 0.06 });
+  },
+  magnet() {
+    blip(220, { dur: 0.3, to: 330, type: 'triangle', vol: 0.05 });
+  },
+  freeze() {
+    [1568, 1245, 988].forEach((f, i) => blip(f, { at: i * 0.05, dur: 0.1, type: 'triangle', vol: 0.05 }));
+  },
 };

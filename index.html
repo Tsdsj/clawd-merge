@@ -50,7 +50,7 @@
             <div class="score-line"><span class="score-label">分数: </span><span id="score">0</span></div>
             <div class="best">本机最高 <span id="best">0</span></div>
           </div>
-          <div class="next-box">
+          <div class="next-box" id="next-box">
             <span>下一个</span>
             <canvas id="next"></canvas>
           </div>
@@ -93,6 +93,14 @@
               <p>分数 <b id="paused-score">0</b> · 进度保持不变</p>
               <button class="btn" id="resume-btn">继续游戏</button>
               <button class="link-btn" id="paused-rank">看看排行榜</button>
+            </div>
+          </div>
+          <div class="choice-cover hidden" id="choice-cover" role="region" aria-labelledby="choice-title">
+            <div class="choice-panel">
+              <h2 id="choice-title">两只大Clawd 合体了</h2>
+              <p class="choice-copy">这对王冠只能换一样。</p>
+              <button class="btn" id="choice-ascend" type="button">升天 · +2000 分，王冠 +1</button>
+              <button class="btn ghost" id="choice-sweep" type="button">王冠清扫 · 清掉全部小Clawd，不计分</button>
             </div>
           </div>
           <div class="overlay hidden" id="overlay">

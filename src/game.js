@@ -37,6 +37,7 @@ const rand = (a, b) => a + Math.random() * (b - a);
 const easeOutBack = (t) => 1 + 2.9 * (t - 1) ** 3 + 1.9 * (t - 1) ** 2;
 const easeOut = (t) => 1 - (1 - t) ** 3;
 const RAINBOW_COLORS = ['#FF5E5B', '#FF9F43', '#FFD84D', '#5BD17A', '#4DB2FF', '#A77BFF'];
+const SPECIAL_COLORS = { gold: '#F7C948', magnet: '#8FE3FF', freeze: '#9FD8FF' };
 
 // Haptics for touch devices; browsers reject vibration before a real tap.
 let hapticsReady = false;
@@ -330,6 +331,7 @@ export class Game {
       if (b.special === 'magnet' && !b.magnetArmed && (b.landedFor ?? 0) >= RULES.landedTime) {
         b.magnetArmed = true;
         b.specialUntil = this.time + SPECIALS.magnet.seconds;
+        sfx.magnet();
       }
       if (b.special === 'freeze' && !b.froze && (b.landedFor ?? 0) >= RULES.landedTime) {
         b.froze = true;
@@ -382,6 +384,7 @@ export class Game {
       if (!b.sleeping) b.sleep();
     }
     carrier.special = null;
+    sfx.freeze();
   }
 
   // Squash & dust when a Clawd lands hard.
@@ -499,7 +502,10 @@ export class Game {
 
     const points = Math.round(RULES.points(level) * (gold ? 2 : 1) * mult);
     this.addScore(points, x, y);
-    if (gold) this.floatText('金色 ×2!', x, y - 48, 18, '#F7C948', 1.2);
+    if (gold) {
+      sfx.gold();
+      this.floatText('金色 ×2!', x, y - 48, 18, '#F7C948', 1.2);
+    }
     if (this.combo >= 2) {
       const size = Math.min(26, 14 + this.combo * 2);
       this.floatText(`连击 ×${this.combo}`, x, y - 34, size, '#FFD84D', 1.1);
@@ -841,6 +847,7 @@ export class Game {
     this.drawParticles(ctx);
     this.drawTexts(ctx);
     this.drawFeverBar(ctx, now);
+    if (this.specialRules) this.drawCrowns(ctx);
     if (this.danger > 0 && !this.over) this.drawCountdown(ctx, now);
     if (this.clawMode) this.drawClawHint(ctx, now);
     if (this.card) this.drawCard(ctx, now);
@@ -890,6 +897,37 @@ export class Game {
       blink,
       frame: crab.level === RAINBOW ? this.rainbowFrame() : 0,
     });
+    this.drawSpecialOverlay(ctx, crab);
+  }
+
+  drawSpecialOverlay(ctx, crab) {
+    if (crab.special === 'gold') {
+      ctx.save();
+      ctx.globalAlpha = 0.22 + (this.effects.reduced ? 0 : 0.08 * Math.sin(this.visualTime * 6));
+      ctx.fillStyle = '#F7C948';
+      ctx.beginPath();
+      ctx.arc(crab.x, crab.y, crab.bound * 0.85, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    } else if (crab.special === 'magnet' && crab.magnetArmed && this.time < crab.specialUntil) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(143, 227, 255, 0.35)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([4, 6]);
+      ctx.beginPath();
+      ctx.arc(crab.x, crab.y, SPECIALS.magnet.radius, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.restore();
+    }
+    if (crab.frozenUntil > this.time) {
+      ctx.save();
+      ctx.globalAlpha = 0.3;
+      ctx.fillStyle = '#9FD8FF';
+      ctx.beginPath();
+      ctx.arc(crab.x, crab.y, crab.bound + 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.restore();
+    }
   }
 
   drawHitboxes(ctx) {
@@ -925,6 +963,12 @@ export class Game {
     const bob = this.effects.reduced ? 0 : Math.sin(this.visualTime / 0.25) * 1.5;
     const s = this.effects.reduced ? 1 : 0.6 + 0.4 * easeOutBack((t - 0.5) / 0.5);
     this.drawSprite(ctx, level, x, DROP_Y + bob, { sx: s, sy: s, frame: this.rainbowFrame() });
+    if (this.currentSpecial) {
+      ctx.fillStyle = SPECIAL_COLORS[this.currentSpecial];
+      ctx.beginPath();
+      ctx.arc(x + extentOf(level).right + 10, DROP_Y + bob, 4, 0, Math.PI * 2);
+      ctx.fill();
+    }
   }
 
   drawDangerLine(ctx) {
@@ -986,6 +1030,39 @@ export class Game {
     } else {
       ctx.fillStyle = '#D97757';
       ctx.fillRect(0, 0, (WORLD_W * this.feverMeter) / FEVER_MAX, h);
+    }
+    ctx.restore();
+  }
+
+  // Crown pips appear only after the first ascension, so new boards stay clean.
+  drawCrowns(ctx) {
+    if (this.crowns === 0 && this.crownCycles === 0) return;
+    ctx.save();
+    for (let i = 0; i < CROWN_MAX; i++) {
+      const x = 14 + i * 20;
+      ctx.beginPath();
+      ctx.moveTo(x - 6, 24);
+      ctx.lineTo(x - 6, 14);
+      ctx.lineTo(x - 2, 19);
+      ctx.lineTo(x, 12);
+      ctx.lineTo(x + 2, 19);
+      ctx.lineTo(x + 6, 14);
+      ctx.lineTo(x + 6, 24);
+      ctx.closePath();
+      if (i < this.crowns) {
+        ctx.fillStyle = '#F7C948';
+        ctx.fill();
+      } else {
+        ctx.strokeStyle = 'rgba(247, 201, 72, 0.5)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+      }
+    }
+    if (this.crownCycles > 0) {
+      ctx.font = `800 11px ${FONT}`;
+      ctx.fillStyle = '#F7C948';
+      ctx.textAlign = 'left';
+      ctx.fillText(`×${this.crownCycles}`, 14 + CROWN_MAX * 20, 24);
     }
     ctx.restore();
   }
