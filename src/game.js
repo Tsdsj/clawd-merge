@@ -3,7 +3,7 @@ import { captureGame, restoreGame } from './game-state.js';
 import { GameplayRandom } from './random.js';
 import { challengeSequence, SETTLE_SECONDS, STABLE_SECONDS } from './challenge.js';
 import { chooseClassicDrop } from './drop-sequence.js';
-import { RULES, DROP_COOLDOWN, COMBO_WINDOW, FEVER_MAX, FEVER_TIME, CLAW_LEVEL, MAX_CLAWS, KING_BONUS, CLASSIC_RULES_VERSION, CLASSIC_RULES_VERSIONS, SPECIALS, SPECIAL_KINDS } from './rules.js';
+import { RULES, DROP_COOLDOWN, COMBO_WINDOW, FEVER_MAX, FEVER_TIME, CLAW_LEVEL, MAX_CLAWS, KING_BONUS, CLASSIC_RULES_VERSION, CLASSIC_RULES_VERSIONS, SPECIALS, SPECIAL_KINDS, CROWN_MAX, CROWN_BONUS } from './rules.js';
 export { RULES } from './rules.js';
 import { readPreference, writePreference } from './storage.js';
 import {
@@ -146,6 +146,9 @@ export class Game {
     this.feverTime = 0;
     this.claws = 0;
     this.clawsUsed = 0;
+    this.crowns = 0;
+    this.crownCycles = 0;
+    this.choice = null;
     this.clawMode = false;
     this.particles = [];
     this.texts = [];
@@ -153,10 +156,11 @@ export class Game {
     this.card = null;
     this.shake = 0;
     this.events.onScore?.(this.score, this.best);
-    this.events.onNext?.(this.next);
+    this.events.onNext?.(this.next, this.nextSpecial);
     this.events.onLevel?.(this.maxLevel);
     this.events.onClaws?.(this.claws, this.clawMode);
     this.events.onFever?.(false);
+    this.events.onCrowns?.(this.crowns, this.crownCycles);
   }
 
   get fever() {
@@ -199,7 +203,7 @@ export class Game {
   }
 
   setAim(x) {
-    if (this.paused) return;
+    if (this.paused || this.choice) return;
     this.aimX = clamp(x, 0, WORLD_W);
   }
 
@@ -210,13 +214,13 @@ export class Game {
 
   // Taps during the cooldown are queued so fast players don't lose inputs.
   requestDrop() {
-    if (this.paused || this.over || this.clawMode || this.settling) return;
+    if (this.paused || this.over || this.clawMode || this.settling || this.choice) return;
     if (this.cooldown > 0) this.pendingDrop = true;
     else this.drop();
   }
 
   drop() {
-    if (this.paused || this.over || this.settling) return;
+    if (this.paused || this.over || this.settling || this.choice) return;
     const level = this.current;
     const special = this.currentSpecial;
     const crab = this.spawnCrab(level, this.clampAim(this.aimX, level), DROP_Y);
@@ -281,7 +285,7 @@ export class Game {
   }
 
   update(dt) {
-    if (this.paused) return;
+    if (this.paused || this.choice) return;
     dt = Math.min(dt, 0.1);
     this.visualTime += dt;
     this.updateEffects(dt);
@@ -396,6 +400,7 @@ export class Game {
   }
 
   handleMerges() {
+    if (this.choice) return;
     const pairs = [];
     for (const c of this.world.contacts) {
       const { a, b } = c;
@@ -406,6 +411,10 @@ export class Game {
         // The rainbow Clawd upgrades whatever it touches.
         pairs.push(ra ? [a, b, true] : [b, a, true]);
       } else if (!ra && a.level === b.level) {
+        if (a.level === MAX_LEVEL && this.specialRules) {
+          this.beginChoice(a, b);
+          return;
+        }
         pairs.push([a, b, false]);
       } else {
         continue;
@@ -417,6 +426,45 @@ export class Game {
       if (rainbow) this.upgrade([a, b], b.level, b.x, b.y, b, true);
       else this.upgrade([a, b], a.level, (a.x + b.x) / 2, (a.y + b.y) / 2, a, false);
     }
+  }
+
+  // classic-2: two proper kings freeze the board and let the player choose.
+  beginChoice(a, b) {
+    this.choice = { a, b };
+    this.events.onChoice?.();
+  }
+
+  resolveChoice(option) {
+    if (!this.choice || (option !== 'ascend' && option !== 'sweep')) return false;
+    const { a, b } = this.choice;
+    this.choice = null;
+    const x = (a.x + b.x) / 2;
+    const y = (a.y + b.y) / 2;
+    if (option === 'ascend') {
+      this.combo = this.time - this.lastMergeAt <= COMBO_WINDOW ? this.combo + 1 : 1;
+      this.lastMergeAt = this.time;
+      const mult = Math.min(RULES.maxComboMult, 1 + RULES.comboStep * (this.combo - 1)) * (this.fever ? 2 : 1);
+      this.ascend([a, b], MAX_LEVEL, x, y, mult, false, null);
+      this.events.onChoiceEnd?.('ascend');
+      return true;
+    }
+    for (const king of [a, b]) {
+      this.world.remove(king);
+      this.world.wakeNear(king.x, king.y, king.bound + 20);
+    }
+    for (const small of this.world.bodies.filter((s) => s.level >= 1 && s.level <= 2)) {
+      this.world.remove(small);
+      this.world.wakeNear(small.x, small.y, small.bound + 20);
+      this.burst(small.x, small.y, 6, ['#F7C948', '#FFE08A', '#FFFFFF']);
+    }
+    this.burst(x, y, 60, ['#F7C948', '#D97757', '#FFFFFF']);
+    this.ring(x, y, 40, 280, '#F7C948');
+    this.shake = this.effects.shake ? 10 : 0;
+    this.floatText('王冠清扫!', WORLD_W / 2, WORLD_H / 2 - 40, 30, '#F7C948', 2);
+    sfx.sweep();
+    this.buzz(80);
+    this.events.onChoiceEnd?.('sweep');
+    return true;
   }
 
   // Removes `consumed` and creates a Clawd of `level + 1` at (x, y).
@@ -436,14 +484,7 @@ export class Game {
 
     // Two kings (or a king + rainbow) ascend into a big bonus.
     if (level === MAX_LEVEL) {
-      this.addScore(Math.round((RULES.points(level) * (gold ? 2 : 1) + KING_BONUS) * mult), x, y);
-      this.burst(x, y, 90, colors ?? ['#F7C948', '#FFE08A', '#D97757', '#FFFFFF']);
-      this.ring(x, y, 40, 260, '#F7C948');
-      this.shake = this.effects.shake ? 12 : 0;
-      this.floatText('Clawd 之王!', WORLD_W / 2, WORLD_H / 2 - 40, 30, '#F7C948', 2);
-      sfx.jackpot();
-      this.buzz(80);
-      this.addFever(20);
+      this.ascend(consumed, level, x, y, mult, gold, colors);
       return;
     }
 
@@ -483,6 +524,31 @@ export class Game {
     if (rainbow) sfx.rainbow();
     sfx.merge(nl, this.combo);
     if (nl >= 6) this.buzz(nl >= 9 ? 40 : 15);
+  }
+
+  // Removes the kings, pays the bonus, and advances the crown track.
+  ascend(consumed, level, x, y, mult, gold, colors) {
+    for (const b of consumed) {
+      this.world.remove(b);
+      this.world.wakeNear(b.x, b.y, b.bound + 20);
+    }
+    this.crowns++;
+    const crowned = this.crowns >= CROWN_MAX;
+    if (crowned) {
+      this.crowns = 0;
+      this.crownCycles++;
+    }
+    const bonus = KING_BONUS + (crowned ? CROWN_BONUS : 0);
+    this.addScore(Math.round((RULES.points(level) * (gold ? 2 : 1) + bonus) * mult), x, y);
+    this.burst(x, y, crowned ? 140 : 90, colors ?? ['#F7C948', '#FFE08A', '#D97757', '#FFFFFF']);
+    this.ring(x, y, 40, 260, '#F7C948');
+    this.shake = this.effects.shake ? (crowned ? 16 : 12) : 0;
+    this.floatText(crowned ? '王冠集满!' : 'Clawd 之王!', WORLD_W / 2, WORLD_H / 2 - 40, 30, '#F7C948', 2);
+    sfx.jackpot();
+    if (crowned) sfx.crown();
+    this.buzz(80);
+    this.addFever(20);
+    this.events.onCrowns?.(this.crowns, this.crownCycles);
   }
 
   addFever(amount) {
@@ -533,14 +599,14 @@ export class Game {
   // ---------- claw power-up ----------
 
   toggleClaw() {
-    if (this.paused || this.over || this.settling || (this.claws === 0 && !this.clawMode)) return;
+    if (this.paused || this.over || this.settling || this.choice || (this.claws === 0 && !this.clawMode)) return;
     this.clawMode = !this.clawMode;
     this.events.onClaws?.(this.claws, this.clawMode);
   }
 
   // Removes the Clawd under (x, y). Returns false if nothing was hit.
   useClawAt(x, y) {
-    if (this.paused || this.over || this.settling || !this.clawMode) return false;
+    if (this.paused || this.over || this.settling || this.choice || !this.clawMode) return false;
     let target = null;
     let best = Infinity;
     for (const b of this.world.bodies) {

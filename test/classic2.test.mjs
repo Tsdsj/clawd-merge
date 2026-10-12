@@ -7,6 +7,7 @@ globalThis.localStorage = { getItem: (key) => key.endsWith(':sound') ? 'off' : n
 const { chooseClassicDrop } = await import('../src/drop-sequence.js');
 const { Game } = await import('../src/game.js');
 const { SaveStore } = await import('../src/save-store.js');
+const { RAINBOW } = await import('../src/crabs.js');
 
 function mockGame(overrides = {}) {
   return {
@@ -135,7 +136,7 @@ function game(t) {
   t.mock.method(Math, 'random', () => 0.5);
   return new Game({ getContext: () => ({}) });
 }
-function contact(a, b) { return { a, b, ia: 0, pen: 1 }; }
+function contact(a, b) { return { a, b, ia: 0, ib: 0, nx: 0, ny: 1, pen: 1, px: 0, py: 0, Pn: 0, Pt: 0 }; }
 function merge(g, aLevel, bLevel = aLevel) {
   const a = g.spawnCrab(aLevel, 180, 400);
   const b = g.spawnCrab(bLevel, 200, 400);
@@ -220,4 +221,64 @@ test('frozen bodies above the line still feed the danger countdown and wake on t
   f.frozenUntil = g.time;
   g.updateSpecials(1 / 120);
   assert.equal(f.sleeping, false);
+});
+
+test('two kings pause for a choice; ascend pays and crowns cycle every third', (t) => {
+  const g = game(t);
+  merge(g, 11);
+  assert.ok(g.choice);
+  assert.equal(g.score, 0);
+  assert.equal(g.world.bodies.length, 2);
+  assert.equal(g.resolveChoice('nonsense'), false);
+  assert.equal(g.resolveChoice('ascend'), true);
+  assert.equal(g.score, 4048);
+  assert.equal(g.crowns, 1);
+  assert.equal(g.world.bodies.length, 0);
+  g.time += 0.1; merge(g, 11); g.resolveChoice('ascend');
+  assert.equal(g.crowns, 2);
+  g.time += 0.1; merge(g, 11); g.resolveChoice('ascend');
+  assert.equal(g.crowns, 0);
+  assert.equal(g.crownCycles, 1);
+  // 升天沿用既有连击倍率：4048 + 4048×1.25 + (2048+2000+5000)×1.5
+  assert.equal(g.score, 4048 + 5060 + 13572);
+});
+
+test('sweep spends the pair to clear levels 1-2 only, keeping rainbows and score', (t) => {
+  const g = game(t);
+  const a = g.spawnCrab(11, 180, 400);
+  const b = g.spawnCrab(11, 200, 400);
+  g.spawnCrab(1, 100, 550); g.spawnCrab(2, 150, 550);
+  g.spawnCrab(3, 260, 550); g.spawnCrab(RAINBOW, 320, 550);
+  g.world.contacts = [contact(a, b)];
+  g.handleMerges();
+  assert.ok(g.choice);
+  g.requestDrop(); // 抉择期间输入被挡
+  assert.equal(g.drops, 0);
+  g.resolveChoice('sweep');
+  assert.equal(g.score, 0);
+  assert.deepEqual(g.world.bodies.map((x) => x.level).sort(), [0, 3]);
+  assert.equal(g.crowns, 0);
+});
+
+test('classic-1 and challenge games keep automatic ascension', (t) => {
+  const old = new Game({ getContext: () => ({}) }, {}, { seed: 1, rulesVersion: 'classic-1' });
+  merge(old, 11);
+  assert.equal(old.choice, null);
+  assert.equal(old.score, 4048);
+  const c = new Game({ getContext: () => ({}) }, {}, { seed: 1, challenge: { challengeId: 't1', rulesVersion: 'daily-1', count: 100 } });
+  merge(c, 11);
+  assert.equal(c.choice, null);
+  assert.equal(c.score, 4048);
+});
+
+test('a snapshot taken mid-choice re-presents the choice after restore', (t) => {
+  const g = game(t);
+  merge(g, 11);
+  const state = JSON.parse(JSON.stringify(g.snapshot()));
+  const h = new Game({ getContext: () => ({}) }, {}, { seed: 5 });
+  h.restore(state);
+  h.handleMerges();
+  assert.ok(h.choice);
+  h.resolveChoice('ascend');
+  assert.equal(h.score, 4048);
 });

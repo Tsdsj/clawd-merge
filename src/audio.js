@@ -77,4 +77,11 @@ export const sfx = {
   over() {
     [392, 330, 262, 196].forEach((f, i) => blip(f, { at: i * 0.14, dur: 0.18, type: 'triangle', vol: 0.08 }));
   },
+  crown() {
+    [523, 659, 784, 1047, 1319].forEach((f, i) => blip(f, { at: i * 0.07, dur: 0.16, type: 'triangle', vol: 0.06 }));
+  },
+  sweep() {
+    blip(880, { dur: 0.3, to: 110, type: 'sawtooth', vol: 0.06 });
+    blip(440, { at: 0.1, dur: 0.25, to: 80, type: 'triangle', vol: 0.06 });
+  },
 };

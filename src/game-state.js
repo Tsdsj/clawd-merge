@@ -6,7 +6,7 @@ export { CLASSIC_RULES_VERSION as RULES_VERSION, CLASSIC_RULES_VERSIONS } from '
 
 export const SCHEMA_VERSION = 1;
 const fields = ['score','bestAtStart','recordShown','time','visualTime','drops','maxLevel','current','next',
-  'currentSpecial','nextSpecial','specialLastAt','aimX','cooldown','danger','warning','combo','feverMeter','feverTime','claws','clawsUsed'];
+  'currentSpecial','nextSpecial','specialLastAt','aimX','cooldown','danger','warning','combo','feverMeter','feverTime','claws','clawsUsed','crowns','crownCycles'];
 const bodyFields = ['level','x','y','angle','vx','vy','w','sleeping','stillTime','restX','restY','restAngle','born','landedFor','special'];
 const pick = (object, keys) => Object.fromEntries(keys.map(k => [k, object[k] !== undefined ? object[k] : (k === 'landedFor' ? 0 : undefined)]));
 const number = (n, lo, hi, integer = false) => typeof n === 'number' && Number.isFinite(n) && n >= lo && n <= hi && (!integer || Number.isInteger(n));
@@ -29,6 +29,9 @@ export function validateGameState(s) {
   if (Object.hasOwn(s, 'specialLastAt')) {
     requireValue(s.specialLastAt && typeof s.specialLastAt === 'object' &&
       Object.entries(s.specialLastAt).every(([k, v]) => SPECIAL_KINDS.includes(k) && number(v, 0, 1e9, true)));
+  }
+  if (Object.hasOwn(s, 'crowns') || Object.hasOwn(s, 'crownCycles')) {
+    requireValue(number(s.crowns, 0, 2, true) && number(s.crownCycles, 0, 1e9, true));
   }
   requireValue(number(s.maxLevel,1,11,true) && number(s.claws,0,3,true));
   requireValue(number(s.aimX,0,400) && number(s.cooldown,0,0.5));
@@ -93,6 +96,9 @@ export function restoreGame(g, state, rulesVersion) {
   g.currentSpecial = state.currentSpecial ?? null;
   g.nextSpecial = state.nextSpecial ?? null;
   g.specialLastAt = { ...(state.specialLastAt ?? {}) };
+  g.crowns = state.crowns ?? 0;
+  g.crownCycles = state.crownCycles ?? 0;
+  g.choice = null;
   if (state.challenge) g.challenge = { ...state.challenge };
   g.lastMergeAt = state.lastMergeAt ?? -Infinity;
   g.best = Math.max(g.best,state.score,state.bestAtStart);

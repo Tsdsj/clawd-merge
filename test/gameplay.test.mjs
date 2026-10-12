@@ -44,6 +44,8 @@ test('kings ascend without creating an invalid level, including rainbow + king',
   for (const levels of [[11, 11], [0, 11]]) {
     const g = game(t);
     merge(g, ...levels);
+    // classic-2 pauses two proper kings for the ascension choice; rainbow + king still ascends directly.
+    if (g.choice) assert.equal(g.resolveChoice('ascend'), true);
     assert.equal(g.score, 4048);
     assert.equal(g.world.bodies.length, 0);
   }
