@@ -327,6 +327,14 @@ export class Game {
         b.magnetArmed = true;
         b.specialUntil = this.time + SPECIALS.magnet.seconds;
       }
+      if (b.special === 'freeze' && !b.froze && (b.landedFor ?? 0) >= RULES.landedTime) {
+        b.froze = true;
+        this.freezeCluster(b);
+      }
+      if (b.frozenUntil > 0 && this.time >= b.frozenUntil && b.sleeping) {
+        b.frozenUntil = 0;
+        b.wake(); // 引擎会在真正静止后重新自然入睡
+      }
     }
     for (const m of this.world.bodies) {
       if (m.special !== 'magnet' || !m.magnetArmed) continue;
@@ -345,6 +353,31 @@ export class Game {
         t.vy += (dy / d) * SPECIALS.magnet.accel * dt;
       }
     }
+  }
+
+  // Force-sleep the carrier's geometrically connected pile. Sleeping bodies
+  // act static (island reuse); a falling partner still wakes them on contact,
+  // so frozen targets remain mergeable by design.
+  freezeCluster(carrier) {
+    const pile = this.world.bodies.filter((b) => b !== carrier);
+    const queue = [carrier];
+    const seen = new Set(queue);
+    while (queue.length) {
+      const b = queue.pop();
+      for (const o of pile) {
+        if (seen.has(o)) continue;
+        if (Math.hypot(o.x - b.x, o.y - b.y) <= o.bound + b.bound + 4) {
+          seen.add(o);
+          queue.push(o);
+        }
+      }
+    }
+    const until = this.time + SPECIALS.freeze.seconds;
+    for (const b of seen) {
+      b.frozenUntil = until;
+      if (!b.sleeping) b.sleep();
+    }
+    carrier.special = null;
   }
 
   // Squash & dust when a Clawd lands hard.

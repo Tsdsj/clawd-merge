@@ -189,3 +189,35 @@ test('magnet arms after landing, not at spawn', (t) => {
   assert.equal(m.magnetArmed, true);
   assert.ok(m.specialUntil > g.time);
 });
+
+test('freeze sleeps the connected pile, times out, and frozen crabs still merge', (t) => {
+  const g = game(t);
+  const carrier = g.spawnCrab(2, 200, 500);
+  carrier.special = 'freeze'; carrier.landedFor = 0.2;
+  const neighbour = g.spawnCrab(3, 200, 500);
+  neighbour.y = 500 - carrier.bound - neighbour.bound; // 表面紧贴，必在冻结半径内
+  const distant = g.spawnCrab(3, 60, 500);
+  g.updateSpecials(1 / 120);
+  assert.equal(carrier.special, null); // 效果已花在冻结上
+  assert.equal(carrier.sleeping, true);
+  assert.equal(neighbour.sleeping, true); // 几何相邻入堆
+  assert.equal(distant.sleeping, false);
+  assert.ok(carrier.frozenUntil > g.time);
+  const partner = g.spawnCrab(2, 210, 380);
+  g.world.contacts = [contact(carrier, partner)];
+  g.handleMerges();
+  assert.deepEqual(g.world.bodies.map((b) => b.level).sort(), [3, 3, 3]);
+  assert.equal(g.score, 4);
+});
+
+test('frozen bodies above the line still feed the danger countdown and wake on timeout', (t) => {
+  const g = game(t);
+  g.time = 5;
+  const f = g.spawnCrab(1, 200, 100);
+  f.born = 0; f.sleep(); f.frozenUntil = g.time + 3;
+  g.checkDanger(0.3);
+  assert.ok(g.danger > 0); // 冻结不解救危险线
+  f.frozenUntil = g.time;
+  g.updateSpecials(1 / 120);
+  assert.equal(f.sleeping, false);
+});
